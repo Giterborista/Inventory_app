@@ -85,6 +85,17 @@ function safeStringList(value: unknown) {
     .filter(Boolean);
 }
 
+function normalizeRawResolutionStatus(status: ResolutionStatus, rawValue: unknown) {
+  const rawText = safeText(rawValue).trim();
+  const normalizedRaw = normalizeText(rawText);
+
+  if (!normalizedRaw || normalizedRaw === "unchecked" || normalizedRaw === "not added yet") {
+    return status === "unchecked" ? "In progress" : rawText;
+  }
+
+  return rawText;
+}
+
 export function createEmptyDocumentation(): DocumentationRecord {
   return {
     referenceAndScope: "",
@@ -168,7 +179,7 @@ export function createBlankRow(
     iupac: safeText(row.iupac),
     cas: safeText(row.cas),
     ecoinventStatus: row.ecoinventStatus ?? "unchecked",
-    rawEcoinventStatus: safeText(row.rawEcoinventStatus),
+    rawEcoinventStatus: normalizeRawResolutionStatus(row.ecoinventStatus ?? "unchecked", row.rawEcoinventStatus),
     ecoinventName: safeText(row.ecoinventName),
     notes: safeText(row.notes),
     relevant: safeText(row.relevant),
@@ -365,7 +376,10 @@ function normalizeMoleculeRecord(molecule: PartialMoleculeRecord): MoleculeRecor
     ecoinventAliases: safeStringList(molecule.ecoinventAliases),
     notes: safeText(molecule.notes),
     ecoinventStatus: molecule.ecoinventStatus ?? "unchecked",
-    rawEcoinventStatus: safeText(molecule.rawEcoinventStatus ?? molecule.ecoinventStatus ?? "unchecked"),
+    rawEcoinventStatus: normalizeRawResolutionStatus(
+      molecule.ecoinventStatus ?? "unchecked",
+      molecule.rawEcoinventStatus ?? molecule.ecoinventStatus ?? "unchecked",
+    ),
     ecoinventCheck: normalizeEcoinventCheckRecord(molecule.ecoinventCheck),
     reviewStatus: molecule.reviewStatus ?? "draft",
     placeholder: molecule.placeholder ?? false,

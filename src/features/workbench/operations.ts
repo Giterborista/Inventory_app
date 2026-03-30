@@ -243,6 +243,109 @@ function createLinkedInputRow(
   });
 }
 
+function insertCreatedParentMolecule(
+  state: WorkbenchState,
+  childMoleculeId: string,
+  newParentMoleculeId: string,
+): WorkbenchState {
+  const childMolecule = state.project.molecules.find((molecule) => molecule.id === childMoleculeId);
+  const newParentMolecule = state.project.molecules.find((molecule) => molecule.id === newParentMoleculeId);
+
+  if (!childMolecule || !newParentMolecule) {
+    return state;
+  }
+
+  const existingParentLinks = state.project.links.filter((link) => link.childMoleculeId === childMoleculeId);
+  if (existingParentLinks.length === 0) {
+    return addManualParentLink(state, childMoleculeId, newParentMoleculeId);
+  }
+
+  const timestamp = nowIso();
+  const nextManualLink: MoleculeLinkRecord = {
+    id: makeClientId("link"),
+    parentMoleculeId: newParentMoleculeId,
+    childMoleculeId,
+    sourceRowId: null,
+    linkMethod: "manual",
+    confidence: "high",
+    needsReview: false,
+    sortOrder: 1,
+    createdAt: timestamp,
+    updatedAt: timestamp,
+  };
+
+  const nextLinks = [
+    ...state.project.links.map((link) =>
+      link.childMoleculeId === childMoleculeId
+        ? {
+            ...link,
+            childMoleculeId: newParentMoleculeId,
+            updatedAt: timestamp,
+          }
+        : link,
+    ),
+    nextManualLink,
+  ];
+
+  const nextMolecules = state.project.molecules.map((molecule) => {
+    if (molecule.id === newParentMoleculeId) {
+      return {
+        ...molecule,
+        topLevel: false,
+        rootOrder: 0,
+        updatedAt: timestamp,
+      };
+    }
+
+    if (molecule.id === childMoleculeId) {
+      return {
+        ...molecule,
+        topLevel: false,
+        rootOrder: 0,
+        updatedAt: timestamp,
+      };
+    }
+
+    const hasLinkedChildRows = molecule.rows.some((row) => row.linkedMoleculeId === childMoleculeId);
+    if (!hasLinkedChildRows) {
+      return molecule;
+    }
+
+    return {
+      ...molecule,
+      updatedAt: timestamp,
+      rows: molecule.rows.map((row) =>
+        row.linkedMoleculeId === childMoleculeId
+          ? {
+              ...row,
+              name: newParentMolecule.name,
+              synonyms: newParentMolecule.synonyms,
+              cas: newParentMolecule.cas,
+              iupac: newParentMolecule.iupac,
+              linkedMoleculeId: newParentMoleculeId,
+              ecoinventStatus: newParentMolecule.ecoinventStatus,
+              rawEcoinventStatus: newParentMolecule.rawEcoinventStatus,
+              ecoinventName: newParentMolecule.ecoinventCheck?.datasetName ?? "",
+              updatedAt: timestamp,
+            }
+          : row,
+      ),
+    };
+  });
+
+  return {
+    ...state,
+    project: touchProject(
+      {
+        ...state.project,
+        links: nextLinks,
+        updatedAt: timestamp,
+      },
+      nextMolecules,
+    ),
+  };
+}
+
 export function replaceProject(state: WorkbenchState, nextState: WorkbenchState): WorkbenchState {
   return {
     project: nextState.project,
@@ -279,14 +382,25 @@ export function createMolecule(
   },
 ): WorkbenchState {
   const importSessionId = state.project.importSessions.at(-1)?.id ?? "manual";
-  const newMolecule = createMoleculeFromDraft(draft, importSessionId);
+  const childHasParents = options?.childMoleculeId
+    ? state.project.links.some((link) => link.childMoleculeId === options.childMoleculeId)
+    : false;
+  const newMolecule = createMoleculeFromDraft(
+    options?.childMoleculeId
+      ? {
+          ...draft,
+          topLevel: childHasParents ? false : draft.topLevel,
+        }
+      : draft,
+    importSessionId,
+  );
   let nextState = updateMolecules(state, (molecules) => {
     const maxRootOrder = molecules.reduce((max, molecule) => Math.max(max, molecule.rootOrder || 0), 0);
     return [
       ...molecules,
       {
         ...newMolecule,
-        rootOrder: draft.topLevel ? maxRootOrder + 1 : 0,
+        rootOrder: newMolecule.topLevel ? maxRootOrder + 1 : 0,
       },
     ];
   });
@@ -320,7 +434,7 @@ export function createMolecule(
   }
 
   if (options?.childMoleculeId) {
-    nextState = addManualParentLink(nextState, options.childMoleculeId, newMolecule.id);
+    nextState = insertCreatedParentMolecule(nextState, options.childMoleculeId, newMolecule.id);
   }
 
   return {

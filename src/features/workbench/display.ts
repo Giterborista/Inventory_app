@@ -11,7 +11,7 @@ export const resolutionLabels: Record<ResolutionStatus, string> = {
   missing: "Missing from ecoinvent",
   proxy_created: "Proxy created",
   in_progress: "In progress",
-  unchecked: "Not added yet",
+  unchecked: "In progress",
 };
 
 export const visibleResolutionOptions: ResolutionStatus[] = [
@@ -19,7 +19,6 @@ export const visibleResolutionOptions: ResolutionStatus[] = [
   "missing",
   "proxy_created",
   "in_progress",
-  "unchecked",
 ];
 
 export const reviewLabels: Record<ReviewStatus, string> = {
