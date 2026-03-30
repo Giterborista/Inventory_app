@@ -107,7 +107,7 @@ export function Dashboard({
             <div className="max-w-4xl">
               <div className="section-title">Proxy Reconstruction Studio</div>
               <h1 className="mt-4 text-4xl font-semibold text-ink md:text-[3.2rem]">
-                Traceable CAZZO molecule workbooks for missing ecoinvent chemistry
+                Traceable molecule workbooks for missing ecoinvent chemistry
               </h1>
               <p className="mt-4 max-w-3xl text-base leading-7 text-slate">
                 Start from the main molecule, expand the dependency cascade, and open any molecule workspace to document
