@@ -33,6 +33,9 @@ export type PubChemMatch = {
   cid: number;
   query: string;
   queryType: "auto";
+  matchedTerm: string;
+  matchedBy: string[];
+  searchScore: number;
   title: string;
   iupacName: string;
   molecularFormula: string;

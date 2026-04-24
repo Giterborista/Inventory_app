@@ -122,6 +122,7 @@ export function PubChemLookupDialog({
                     <div className="text-base font-semibold text-ink">{match.title || match.iupacName || `CID ${match.cid}`}</div>
                     <StatusBadge label={`CID ${match.cid}`} tone="accent" />
                     {match.matchedCas ? <StatusBadge label={match.matchedCas} tone="ink" /> : null}
+                    <StatusBadge label={`Score ${match.searchScore}`} tone="ink" />
                   </div>
                   <div className="mt-2 grid gap-3 md:grid-cols-2">
                     <div className="text-sm text-slate">
@@ -135,6 +136,12 @@ export function PubChemLookupDialog({
                     </div>
                     <div className="text-sm text-slate">
                       <span className="font-medium text-ink">InChIKey:</span> {match.inchikey || "—"}
+                    </div>
+                    <div className="text-sm text-slate">
+                      <span className="font-medium text-ink">Matched term:</span> {match.matchedTerm || "—"}
+                    </div>
+                    <div className="text-sm text-slate">
+                      <span className="font-medium text-ink">Matched by:</span> {match.matchedBy.join(", ") || "—"}
                     </div>
                   </div>
                   {match.synonyms.length > 0 ? (
