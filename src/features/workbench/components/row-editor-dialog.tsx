@@ -105,6 +105,38 @@ function formatScaled(value: number) {
   return Number(value.toFixed(6)).toString();
 }
 
+function convertMassValueToKg(value: string, unit: string) {
+  const numeric = parseNumeric(value);
+  if (numeric === null) {
+    return null;
+  }
+
+  const normalizedUnit = unit.trim().toLowerCase();
+  if (!normalizedUnit || normalizedUnit === "kg") {
+    return numeric;
+  }
+  if (normalizedUnit === "g") {
+    return numeric / 1000;
+  }
+  if (normalizedUnit === "mg") {
+    return numeric / 1_000_000;
+  }
+  if (normalizedUnit === "ug" || normalizedUnit === "µg" || normalizedUnit === "mcg") {
+    return numeric / 1_000_000_000;
+  }
+  if (normalizedUnit === "t" || normalizedUnit === "ton" || normalizedUnit === "tons" || normalizedUnit === "tonne" || normalizedUnit === "tonnes") {
+    return numeric * 1000;
+  }
+  if (normalizedUnit === "lb" || normalizedUnit === "lbs") {
+    return numeric * 0.45359237;
+  }
+  if (normalizedUnit === "oz") {
+    return numeric * 0.028349523125;
+  }
+
+  return null;
+}
+
 export function RowEditorDialog({
   open,
   project,
@@ -211,6 +243,18 @@ export function RowEditorDialog({
     }
     return formatScaled(numeric * scaleFactor);
   })();
+  const kgConversionPreview = useMemo(() => {
+    const normalizedUnit = draft.unit.trim().toLowerCase();
+    const convertedTotal = convertMassValueToKg(draft.totalValue, draft.unit);
+    if (!normalizedUnit || normalizedUnit === "kg" || convertedTotal === null) {
+      return null;
+    }
+
+    return {
+      normalizedUnit,
+      total: formatScaled(convertedTotal),
+    };
+  }, [draft.totalValue, draft.unit]);
 
   if (!open) {
     return null;
@@ -256,6 +300,23 @@ export function RowEditorDialog({
     ecoinventName: draft.ecoinventName,
     rawEcoinventStatus: resolutionLabels[draft.ecoinventStatus],
   });
+  const handleConvertToKg = () => {
+    setDraft((current) => {
+      const convert = (value: string) => {
+        const converted = convertMassValueToKg(value, current.unit);
+        return converted === null ? value : formatScaled(converted);
+      };
+
+      return {
+        ...current,
+        reactionValue: convert(current.reactionValue),
+        cleaningValue: convert(current.cleaningValue),
+        totalValue: convert(current.totalValue),
+        unit: "kg",
+        scaledUnit: "kg",
+      };
+    });
+  };
 
   return (
     <>
@@ -519,7 +580,18 @@ export function RowEditorDialog({
               </label>
 
               <label className="block">
-                <span className="text-sm font-medium text-ink">Unit</span>
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-sm font-medium text-ink">Unit</span>
+                  {kgConversionPreview ? (
+                    <button
+                      className="rounded-full border border-accent/30 bg-white px-3 py-1.5 text-[11px] font-semibold text-accent transition hover:border-accent hover:bg-accent/5"
+                      onClick={handleConvertToKg}
+                      type="button"
+                    >
+                      Convert to kg
+                    </button>
+                  ) : null}
+                </div>
                 <input
                   className="mt-2 w-full rounded-2xl border border-mist bg-lab px-4 py-3 text-sm text-ink outline-none transition focus:border-accent"
                   onChange={(event) =>
@@ -532,6 +604,12 @@ export function RowEditorDialog({
                   placeholder="kg"
                   value={draft.unit}
                 />
+                {kgConversionPreview ? (
+                  <div className="mt-2 rounded-2xl border border-accent/15 bg-white px-3 py-2 text-xs leading-5 text-slate">
+                    Fast mass conversion detected: {draft.totalValue || "—"} {kgConversionPreview.normalizedUnit} ={" "}
+                    <span className="font-semibold text-ink">{kgConversionPreview.total} kg</span>
+                  </div>
+                ) : null}
               </label>
 
               <label className="block">
