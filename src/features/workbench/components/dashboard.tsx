@@ -289,21 +289,21 @@ export function Dashboard({
               <div className="section-title">Graph guidance</div>
               <div className="mt-3 grid gap-4 md:grid-cols-3">
                 <div className="rounded-2xl border border-mist/80 bg-white px-4 py-4 shadow-sm">
-                  <div className="font-semibold text-ink">Top-level molecules</div>
+                  <div className="font-semibold text-ink">Depth bands</div>
                   <p className="mt-2 text-sm leading-6 text-slate">
-                    Slightly stronger cards indicate the molecules you want to present as primary roots in the project narrative.
+                    Wider spacing and alternating vertical bands make each dependency generation easier to read from left to right.
                   </p>
                 </div>
                 <div className="rounded-2xl border border-mist/80 bg-white px-4 py-4 shadow-sm">
-                  <div className="font-semibold text-ink">Nested dependencies</div>
+                  <div className="font-semibold text-ink">Complete tree</div>
                   <p className="mt-2 text-sm leading-6 text-slate">
-                    Follow arrows to spot retrosynthetic depth, shared intermediates, and unresolved deep precursors.
+                    Turn on the ingredient toggle to inspect not only linked child molecules but also plain input materials in the same map.
                   </p>
                 </div>
                 <div className="rounded-2xl border border-mist/80 bg-white px-4 py-4 shadow-sm">
-                  <div className="font-semibold text-ink">Error detection</div>
+                  <div className="font-semibold text-ink">Flagged nodes</div>
                   <p className="mt-2 text-sm leading-6 text-slate">
-                    Use the graph to catch accidental reuse, missing roots, or suspicious links before review or export.
+                    Only flagged nodes are called out visually, so unresolved or incomplete parts of the chain stand out immediately.
                   </p>
                 </div>
               </div>

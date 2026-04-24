@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 
 import { DocumentationPanel } from "@/features/workbench/components/documentation-panel";
 import { PubChemLookupDialog } from "@/features/workbench/components/pubchem-lookup-dialog";
@@ -33,6 +33,7 @@ type MoleculeWorkspaceProps = {
   onDelete: () => void;
   onSaveProjectJson: () => void;
   onExportPdfReport: () => void;
+  onImportMoleculeJson: (file: File) => void;
   onOpenMolecule: (moleculeId: string) => void;
   onAddManualParent: (parentMoleculeId: string) => void;
   onCreateParentMolecule: () => void;
@@ -91,6 +92,7 @@ export function MoleculeWorkspace({
   onDelete,
   onSaveProjectJson,
   onExportPdfReport,
+  onImportMoleculeJson,
   onOpenMolecule,
   onAddManualParent,
   onCreateParentMolecule,
@@ -110,6 +112,7 @@ export function MoleculeWorkspace({
   onRescaleRows,
 }: MoleculeWorkspaceProps) {
   const [lookupOpen, setLookupOpen] = useState(false);
+  const importInputRef = useRef<HTMLInputElement>(null);
   const traceability = getMoleculeTraceability(project, molecule);
   const effectiveStatus = getEffectiveResolutionStatus(project, molecule);
   const hierarchyLabel =
@@ -153,12 +156,33 @@ export function MoleculeWorkspace({
             </div>
 
             <div className="flex flex-wrap items-center gap-3">
+              <input
+                className="hidden"
+                onChange={(event) => {
+                  const file = event.target.files?.[0];
+                  if (!file) {
+                    return;
+                  }
+                  onImportMoleculeJson(file);
+                  event.target.value = "";
+                }}
+                ref={importInputRef}
+                type="file"
+                accept="application/json,.json"
+              />
               <button
                 className="rounded-full border border-alert/20 bg-white/80 px-4 py-3 text-sm font-medium text-alert transition hover:bg-alert/10"
                 onClick={onDelete}
                 type="button"
               >
                 Delete molecule
+              </button>
+              <button
+                className="rounded-full border border-mist/80 bg-white/80 px-4 py-3 text-sm font-medium text-ink transition hover:border-accent hover:text-accent"
+                onClick={() => importInputRef.current?.click()}
+                type="button"
+              >
+                Import molecule JSON
               </button>
               <button
                 className="rounded-full border border-mist/80 bg-white/80 px-4 py-3 text-sm font-medium text-ink transition hover:border-accent hover:text-accent"

@@ -9,6 +9,7 @@ import {
   normalizeExplanationLines,
   normalizeText,
   nowIso,
+  sanitizeStringList,
   touchProject,
 } from "@/features/workbench/state-utils";
 import {
@@ -25,6 +26,7 @@ import type {
   MoleculeDraft,
   MoleculeLinkRecord,
   MoleculeRecord,
+  ProjectRecord,
   ReconstructionRow,
   ReconstructionSection,
   ReviewStatus,
@@ -241,6 +243,416 @@ function createLinkedInputRow(
     linkConfidence: "high",
     needsReview: false,
   });
+}
+
+function documentationHasContent(documentation: DocumentationRecord) {
+  return Boolean(
+    documentation.referenceAndScope.trim() ||
+      documentation.functionalUnit.trim() ||
+      documentation.pasAssumptions.trim() ||
+      documentation.balancedEquation.trim() ||
+      documentation.calculationNotes.trim() ||
+      documentation.explanationLines.length > 0,
+  );
+}
+
+function moleculeHasSubstantialContent(molecule: MoleculeRecord) {
+  return Boolean(
+    molecule.rows.length > 0 ||
+      molecule.evidence.length > 0 ||
+      documentationHasContent(molecule.documentation) ||
+      molecule.exports.length > 0,
+  );
+}
+
+function combineStringLists(...lists: string[][]) {
+  return [...new Set(lists.flat().map((value) => value.trim()).filter(Boolean))];
+}
+
+function pickPreferredText(primary: string, fallback: string) {
+  return primary.trim() ? primary : fallback;
+}
+
+function mergeDocumentationRecords(current: DocumentationRecord, imported: DocumentationRecord): DocumentationRecord {
+  const explanationIds = new Set<string>();
+  const explanationLines = [...current.explanationLines, ...imported.explanationLines].filter((line) => {
+    if (explanationIds.has(line.id)) {
+      return false;
+    }
+    explanationIds.add(line.id);
+    return true;
+  });
+
+  return {
+    referenceAndScope: pickPreferredText(imported.referenceAndScope, current.referenceAndScope),
+    functionalUnit: pickPreferredText(imported.functionalUnit, current.functionalUnit),
+    pasAssumptions: pickPreferredText(imported.pasAssumptions, current.pasAssumptions),
+    balancedEquation: pickPreferredText(imported.balancedEquation, current.balancedEquation),
+    calculationNotes: pickPreferredText(imported.calculationNotes, current.calculationNotes),
+    explanationLines: normalizeExplanationLines(explanationLines),
+  };
+}
+
+function getImportedRootMolecule(project: ProjectRecord) {
+  const childIds = new Set(project.links.map((link) => link.childMoleculeId));
+  const roots = project.molecules.filter((molecule) => !childIds.has(molecule.id));
+
+  if (roots.length !== 1) {
+    throw new Error(
+      `Imported JSON must contain exactly one top-level root molecule. Found ${roots.length}.`,
+    );
+  }
+
+  return roots[0];
+}
+
+function findImportTargetMolecule(project: ProjectRecord, importedRoot: MoleculeRecord) {
+  const normalizedCas = normalizeText(importedRoot.cas);
+  const normalizedName = normalizeText(importedRoot.name);
+  const normalizedIupac = normalizeText(importedRoot.iupac);
+  const importedSynonyms = new Set(
+    [...importedRoot.synonyms, ...importedRoot.ecoinventAliases].map((value) => normalizeText(value)).filter(Boolean),
+  );
+
+  const matches = project.molecules.filter((candidate) => {
+    if (normalizedCas && normalizeText(candidate.cas) === normalizedCas) {
+      return true;
+    }
+    if (normalizedName && normalizeText(candidate.name) === normalizedName) {
+      return true;
+    }
+    if (normalizedIupac && normalizeText(candidate.iupac) === normalizedIupac) {
+      return true;
+    }
+
+    return [...candidate.synonyms, ...candidate.ecoinventAliases]
+      .map((value) => normalizeText(value))
+      .some((value) => importedSynonyms.has(value));
+  });
+
+  if (matches.length !== 1) {
+    return null;
+  }
+
+  return matches[0].placeholder || !moleculeHasSubstantialContent(matches[0]) ? matches[0] : null;
+}
+
+function remapImportedProject(project: ProjectRecord): {
+  importSessions: ProjectRecord["importSessions"];
+  links: MoleculeLinkRecord[];
+  molecules: MoleculeRecord[];
+  rootMoleculeId: string;
+} {
+  const importSessionIdMap = new Map<string, string>();
+  const moleculeIdMap = new Map<string, string>();
+  const rowIdMap = new Map<string, string>();
+  const evidenceIdMap = new Map<string, string>();
+  const exportIdMap = new Map<string, string>();
+  const linkIdMap = new Map<string, string>();
+  const explanationIdMap = new Map<string, string>();
+
+  for (const session of project.importSessions) {
+    importSessionIdMap.set(session.id, makeClientId("import-session"));
+  }
+  for (const molecule of project.molecules) {
+    moleculeIdMap.set(molecule.id, makeClientId("molecule"));
+    for (const row of molecule.rows) {
+      rowIdMap.set(row.id, makeClientId("row"));
+    }
+    for (const evidence of molecule.evidence) {
+      evidenceIdMap.set(evidence.id, makeClientId("evidence"));
+    }
+    for (const exportRecord of molecule.exports) {
+      exportIdMap.set(exportRecord.id, makeClientId("export"));
+    }
+    for (const line of molecule.documentation.explanationLines) {
+      explanationIdMap.set(line.id, makeClientId("explanation"));
+    }
+  }
+  for (const link of project.links) {
+    linkIdMap.set(link.id, makeClientId("link"));
+  }
+
+  const molecules = project.molecules.map((molecule) => ({
+    ...molecule,
+    id: moleculeIdMap.get(molecule.id) ?? molecule.id,
+    importSessionId: importSessionIdMap.get(molecule.importSessionId) ?? molecule.importSessionId,
+    topLevel: false,
+    rootOrder: 0,
+    rows: molecule.rows.map((row) => ({
+      ...row,
+      id: rowIdMap.get(row.id) ?? row.id,
+      linkedMoleculeId: row.linkedMoleculeId ? (moleculeIdMap.get(row.linkedMoleculeId) ?? row.linkedMoleculeId) : null,
+      evidenceIds: row.evidenceIds.map((id) => evidenceIdMap.get(id) ?? id),
+    })),
+    documentation: {
+      ...molecule.documentation,
+      explanationLines: molecule.documentation.explanationLines.map((line) => ({
+        ...line,
+        id: explanationIdMap.get(line.id) ?? line.id,
+      })),
+    },
+    evidence: molecule.evidence.map((record) => ({
+      ...record,
+      id: evidenceIdMap.get(record.id) ?? record.id,
+      moleculeId: moleculeIdMap.get(record.moleculeId) ?? record.moleculeId,
+      rowId: record.rowId ? (rowIdMap.get(record.rowId) ?? record.rowId) : null,
+    })),
+    exports: molecule.exports.map((record) => ({
+      ...record,
+      id: exportIdMap.get(record.id) ?? record.id,
+    })),
+    parentLinkIds: [] as string[],
+    childLinkIds: [] as string[],
+  }));
+
+  const links = project.links.map((link) => ({
+    ...link,
+    id: linkIdMap.get(link.id) ?? link.id,
+    parentMoleculeId: moleculeIdMap.get(link.parentMoleculeId) ?? link.parentMoleculeId,
+    childMoleculeId: moleculeIdMap.get(link.childMoleculeId) ?? link.childMoleculeId,
+    sourceRowId: link.sourceRowId ? (rowIdMap.get(link.sourceRowId) ?? link.sourceRowId) : null,
+  }));
+
+  const importSessions = project.importSessions.map((session) => ({
+    ...session,
+    id: importSessionIdMap.get(session.id) ?? session.id,
+  }));
+
+  return {
+    importSessions,
+    links,
+    molecules,
+    rootMoleculeId: moleculeIdMap.get(getImportedRootMolecule(project).id) ?? getImportedRootMolecule(project).id,
+  };
+}
+
+function replaceReferencedMoleculeId(molecule: MoleculeRecord, fromId: string, toId: string) {
+  return {
+    ...molecule,
+    rows: molecule.rows.map((row) =>
+      row.linkedMoleculeId === fromId
+        ? {
+            ...row,
+            linkedMoleculeId: toId,
+          }
+        : row,
+    ),
+  };
+}
+
+function mergeImportedRootMolecule(
+  current: MoleculeRecord,
+  imported: MoleculeRecord,
+  options?: {
+    forceTopLevel?: boolean;
+  },
+): MoleculeRecord {
+  const importedLooksComplete = imported.rows.length > 0 || documentationHasContent(imported.documentation);
+
+  return {
+    ...current,
+    name: pickPreferredText(imported.name, current.name),
+    cas: pickPreferredText(imported.cas, current.cas),
+    iupac: pickPreferredText(imported.iupac, current.iupac),
+    synonyms: combineStringLists(current.synonyms, imported.synonyms),
+    ecoinventAliases: combineStringLists(current.ecoinventAliases, imported.ecoinventAliases),
+    notes: pickPreferredText(imported.notes, current.notes),
+    ecoinventStatus: imported.ecoinventStatus === "unchecked" ? current.ecoinventStatus : imported.ecoinventStatus,
+    rawEcoinventStatus: pickPreferredText(imported.rawEcoinventStatus, current.rawEcoinventStatus),
+    ecoinventCheck: imported.ecoinventCheck ?? current.ecoinventCheck,
+    reviewStatus: importedLooksComplete ? imported.reviewStatus : current.reviewStatus,
+    placeholder: imported.placeholder && !importedLooksComplete && current.placeholder,
+    needsReview: imported.needsReview || current.needsReview,
+    topLevel: options?.forceTopLevel ?? current.topLevel,
+    rootOrder: options?.forceTopLevel ? current.rootOrder : current.rootOrder,
+    scaleReferenceAmount: pickPreferredText(imported.scaleReferenceAmount, current.scaleReferenceAmount),
+    scaleTargetAmount: pickPreferredText(imported.scaleTargetAmount, current.scaleTargetAmount),
+    scaleUnit: pickPreferredText(imported.scaleUnit, current.scaleUnit),
+    sourceWorkbook: pickPreferredText(imported.sourceWorkbook, current.sourceWorkbook),
+    sourceSheet: pickPreferredText(imported.sourceSheet, current.sourceSheet),
+    importSessionId: pickPreferredText(imported.importSessionId, current.importSessionId),
+    pubchemMatch: imported.pubchemMatch ?? current.pubchemMatch,
+    rows: [...current.rows, ...imported.rows],
+    documentation: mergeDocumentationRecords(current.documentation, imported.documentation),
+    evidence: [...current.evidence, ...imported.evidence],
+    exports: [...current.exports, ...imported.exports],
+    parentLinkIds: current.parentLinkIds,
+    childLinkIds: current.childLinkIds,
+    updatedAt: nowIso(),
+  };
+}
+
+function upsertImportedRootLink(
+  state: WorkbenchState,
+  parentMoleculeId: string,
+  importedRootId: string,
+  importedRoot: MoleculeRecord,
+  rowValues: ChildDependencyRowValues,
+): WorkbenchState {
+  const parent = state.project.molecules.find((molecule) => molecule.id === parentMoleculeId);
+  if (!parent) {
+    return state;
+  }
+
+  const existingRow = parent.rows.find((row) => row.section === "INPUT" && row.linkedMoleculeId === importedRootId);
+  if (!existingRow) {
+    return linkExistingChildDependency(state, parentMoleculeId, importedRootId, rowValues);
+  }
+
+  return saveReconstructionRow(
+    state,
+    parentMoleculeId,
+    "INPUT",
+    {
+      ...existingRow,
+      name: importedRoot.name,
+      synonyms: importedRoot.synonyms,
+      cas: importedRoot.cas,
+      iupac: importedRoot.iupac,
+      totalValue: rowValues.totalValue || existingRow.totalValue,
+      unit: rowValues.unit || existingRow.unit,
+      reference: rowValues.reference || existingRow.reference,
+      description: rowValues.description || existingRow.description,
+      notes: rowValues.notes || existingRow.notes,
+      linkedMoleculeId: importedRootId,
+      ecoinventStatus: importedRoot.ecoinventStatus,
+      rawEcoinventStatus: importedRoot.rawEcoinventStatus,
+      ecoinventName: importedRoot.ecoinventCheck?.datasetName ?? existingRow.ecoinventName,
+      linkConfidence: "high",
+      needsReview: false,
+    },
+    existingRow.id,
+  );
+}
+
+export function importMoleculeSubtree(
+  state: WorkbenchState,
+  importedState: WorkbenchState,
+  options?: {
+    parentMoleculeId?: string;
+    sourceRowId?: string;
+    rowValues?: ChildDependencyRowValues;
+    replaceMoleculeId?: string;
+    navigateToImported?: boolean;
+  },
+): WorkbenchState {
+  const importedRootOriginal = getImportedRootMolecule(importedState.project);
+  const remapped = remapImportedProject(importedState.project);
+  const remappedRoot = remapped.molecules.find((molecule) => molecule.id === remapped.rootMoleculeId);
+
+  if (!remappedRoot) {
+    throw new Error("The imported JSON root molecule could not be identified.");
+  }
+
+  const existingTarget =
+    (options?.replaceMoleculeId
+      ? state.project.molecules.find((molecule) => molecule.id === options.replaceMoleculeId) ?? null
+      : null) ?? findImportTargetMolecule(state.project, importedRootOriginal);
+
+  let importedRootId = remapped.rootMoleculeId;
+  let importedLinks = remapped.links;
+  let importedMolecules: MoleculeRecord[] = remapped.molecules.map((molecule) =>
+    molecule.id === remapped.rootMoleculeId
+      ? {
+          ...molecule,
+          topLevel: !options?.parentMoleculeId && !existingTarget,
+          rootOrder: 0,
+        }
+      : {
+          ...molecule,
+          topLevel: false,
+          rootOrder: 0,
+        },
+  );
+
+  let nextMolecules = [...state.project.molecules];
+
+  if (existingTarget) {
+    const mergedRoot = mergeImportedRootMolecule(existingTarget, remappedRoot, {
+      forceTopLevel: options?.parentMoleculeId ? false : existingTarget.topLevel,
+    });
+
+    importedRootId = existingTarget.id;
+    importedLinks = importedLinks.map((link) => ({
+      ...link,
+      parentMoleculeId: link.parentMoleculeId === remapped.rootMoleculeId ? existingTarget.id : link.parentMoleculeId,
+      childMoleculeId: link.childMoleculeId === remapped.rootMoleculeId ? existingTarget.id : link.childMoleculeId,
+    }));
+    importedMolecules = importedMolecules
+      .filter((molecule) => molecule.id !== remapped.rootMoleculeId)
+      .map((molecule) => replaceReferencedMoleculeId(molecule, remapped.rootMoleculeId, existingTarget.id));
+
+    nextMolecules = state.project.molecules.map((molecule) => (molecule.id === existingTarget.id ? mergedRoot : molecule));
+  }
+
+  if (!existingTarget) {
+    const maxRootOrder = nextMolecules.reduce((max, molecule) => Math.max(max, molecule.rootOrder || 0), 0);
+    importedMolecules = importedMolecules.map((molecule) =>
+      molecule.id === importedRootId
+        ? {
+            ...molecule,
+            topLevel: !options?.parentMoleculeId,
+            rootOrder: options?.parentMoleculeId ? 0 : maxRootOrder + 1,
+          }
+        : molecule,
+    );
+  }
+
+  let nextState: WorkbenchState = {
+    ...state,
+    project: touchProject(
+      {
+        ...state.project,
+        importSessions: [...state.project.importSessions, ...remapped.importSessions],
+        links: [...state.project.links, ...importedLinks],
+        updatedAt: nowIso(),
+      },
+      [...nextMolecules, ...importedMolecules],
+    ),
+  };
+
+  const importedRoot =
+    nextState.project.molecules.find((molecule) => molecule.id === importedRootId) ?? remappedRoot;
+
+  if (options?.parentMoleculeId && options?.sourceRowId) {
+    const parentMolecule = nextState.project.molecules.find((molecule) => molecule.id === options.parentMoleculeId);
+    const existingRow = parentMolecule?.rows.find((row) => row.id === options.sourceRowId);
+    if (existingRow) {
+      nextState = saveReconstructionRow(
+        nextState,
+        options.parentMoleculeId,
+        "INPUT",
+        {
+          ...existingRow,
+          name: importedRoot.name,
+          synonyms: importedRoot.synonyms,
+          cas: importedRoot.cas,
+          iupac: importedRoot.iupac,
+          linkedMoleculeId: importedRootId,
+          ecoinventStatus: importedRoot.ecoinventStatus,
+          rawEcoinventStatus: importedRoot.rawEcoinventStatus,
+          ecoinventName: importedRoot.ecoinventCheck?.datasetName ?? existingRow.ecoinventName,
+          linkConfidence: "high",
+          needsReview: false,
+        },
+        options.sourceRowId,
+      );
+    }
+  } else if (options?.parentMoleculeId && options.rowValues) {
+    nextState = upsertImportedRootLink(
+      nextState,
+      options.parentMoleculeId,
+      importedRootId,
+      importedRoot,
+      options.rowValues,
+    );
+  }
+
+  return {
+    ...nextState,
+    selectedMoleculeId: options?.navigateToImported === false ? state.selectedMoleculeId : importedRootId,
+  };
 }
 
 function insertCreatedParentMolecule(
@@ -507,9 +919,14 @@ export function updateMoleculeField(
   field: MoleculeField,
   value: MoleculeFieldValue,
 ): WorkbenchState {
+  const normalizedValue =
+    field === "synonyms" || field === "ecoinventAliases"
+      ? sanitizeStringList(Array.isArray(value) ? value : [])
+      : value;
+
   return updateOneMolecule(state, moleculeId, (molecule) => ({
     ...molecule,
-    [field]: value,
+    [field]: normalizedValue,
   }));
 }
 
@@ -823,17 +1240,18 @@ export function saveReconstructionRow(
         const numeric = parseNumericValue(originalQuantity);
         return numeric === null ? "" : formatScaledValue(numeric * factor);
       })();
-
     const hasExistingRow = rowId ? molecule.rows.some((row) => row.id === rowId) : false;
 
     if (!rowId || !hasExistingRow) {
       const nextOrder = molecule.rows.filter((row) => row.section === section).length + 1;
+      const normalizedSynonyms = sanitizeStringList(values.synonyms ?? []);
       return {
         ...molecule,
         rows: [
           ...molecule.rows,
           createBlankRow(section, nextOrder, {
             ...values,
+            synonyms: normalizedSynonyms,
             id: rowId ?? values.id,
             totalValue: originalQuantity,
             totalScaledValue: scaledQuantity,
@@ -847,15 +1265,20 @@ export function saveReconstructionRow(
       ...molecule,
       rows: molecule.rows.map((row) =>
         row.id === rowId
-          ? {
-              ...row,
-              ...values,
-              section,
-              totalValue: originalQuantity,
-              totalScaledValue: scaledQuantity,
-              scaledUnit: values.scaledUnit ?? values.unit ?? row.scaledUnit,
-              updatedAt: nowIso(),
-            }
+          ? (() => {
+              const normalizedSynonyms =
+                values.synonyms === undefined ? row.synonyms : sanitizeStringList(values.synonyms);
+              return {
+                ...row,
+                ...values,
+                synonyms: normalizedSynonyms,
+                section,
+                totalValue: originalQuantity,
+                totalScaledValue: scaledQuantity,
+                scaledUnit: values.scaledUnit ?? values.unit ?? row.scaledUnit,
+                updatedAt: nowIso(),
+              };
+            })()
           : row,
       ),
     };

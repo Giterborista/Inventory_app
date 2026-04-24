@@ -75,14 +75,51 @@ function safeText(value: unknown, fallback = "") {
   return String(value);
 }
 
-function safeStringList(value: unknown) {
+function normalizeListKey(value: string) {
+  return value
+    .trim()
+    .toLowerCase()
+    .replaceAll(/\s+/g, " ")
+    .trim();
+}
+
+function isObviousNoiseToken(value: string) {
+  const trimmed = value.trim().toLowerCase();
+  if (!trimmed) {
+    return true;
+  }
+
+  return /^(?:l-|d-|n|\d+)$/.test(trimmed);
+}
+
+export function sanitizeStringList(value: unknown) {
   if (!Array.isArray(value)) {
     return [];
   }
 
-  return value
-    .map((item) => safeText(item).trim())
-    .filter(Boolean);
+  const seen = new Set<string>();
+  const sanitized: string[] = [];
+
+  for (const item of value) {
+    const trimmed = safeText(item).trim();
+    if (!trimmed || isObviousNoiseToken(trimmed)) {
+      continue;
+    }
+
+    const key = normalizeListKey(trimmed);
+    if (!key || seen.has(key)) {
+      continue;
+    }
+
+    seen.add(key);
+    sanitized.push(trimmed);
+  }
+
+  return sanitized;
+}
+
+function safeStringList(value: unknown) {
+  return sanitizeStringList(value);
 }
 
 function normalizeRawResolutionStatus(status: ResolutionStatus, rawValue: unknown) {
@@ -274,14 +311,8 @@ export function createMoleculeFromDraft(draft: MoleculeDraft, importSessionId: s
     name: draft.name || "Untitled molecule",
     cas: normalizeCas(draft.cas),
     iupac: draft.iupac.trim(),
-    synonyms: draft.synonyms
-      .split(",")
-      .map((item) => item.trim())
-      .filter(Boolean),
-    ecoinventAliases: draft.ecoinventAliases
-      .split(",")
-      .map((item) => item.trim())
-      .filter(Boolean),
+    synonyms: sanitizeStringList(draft.synonyms.split(",")),
+    ecoinventAliases: sanitizeStringList(draft.ecoinventAliases.split(",")),
     notes: draft.notes,
     ecoinventStatus: draft.ecoinventStatus,
     rawEcoinventStatus: draft.ecoinventStatus,
@@ -486,7 +517,19 @@ export function syncProjectGraph(project: ProjectRecord): ProjectRecord {
     ]),
   );
 
-  const manualLinks = (project.links ?? []).filter((link) => link.sourceRowId === null);
+  const rowLinkedPairs = new Set(
+    project.molecules.flatMap((molecule) =>
+      molecule.rows
+        .filter((row): row is ReconstructionRow & { linkedMoleculeId: string } => Boolean(row.linkedMoleculeId))
+        .map((row) => normalizedLinkKey(molecule.id, row.linkedMoleculeId, null)),
+    ),
+  );
+
+  const manualLinks = (project.links ?? []).filter(
+    (link) =>
+      link.sourceRowId === null &&
+      !rowLinkedPairs.has(normalizedLinkKey(link.parentMoleculeId, link.childMoleculeId, null)),
+  );
   const nextLinks: MoleculeLinkRecord[] = [...manualLinks];
 
   for (const molecule of project.molecules) {

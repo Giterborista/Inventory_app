@@ -1,4 +1,4 @@
-import { nowIso } from "@/features/workbench/state-utils";
+import { nowIso, sanitizeStringList } from "@/features/workbench/state-utils";
 import type { PubChemMatch } from "@/features/workbench/types";
 
 type PubChemPropertyRecord = {
@@ -39,7 +39,7 @@ export function getCuratedPubChemSynonyms(match: Pick<PubChemMatch, "synonyms" |
   const seen = new Set<string>();
   const results: string[] = [];
 
-  for (const synonym of match.synonyms) {
+  for (const synonym of sanitizeStringList(match.synonyms)) {
     const trimmed = synonym.trim();
     if (!trimmed) {
       continue;

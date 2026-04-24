@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { PubChemLookupDialog } from "@/features/workbench/components/pubchem-lookup-dialog";
 import { resolutionLabels, visibleResolutionOptions } from "@/features/workbench/display";
@@ -27,8 +27,10 @@ type CreateMoleculeDialogProps = {
   project: ProjectRecord;
   initialValues?: Partial<MoleculeDraft>;
   hideParentSelection?: boolean;
+  showImportOption?: boolean;
   onClose: () => void;
   onSubmit: (draft: MoleculeDraft) => void;
+  onImportJson?: (file: File) => void;
 };
 
 export function CreateMoleculeDialog({
@@ -39,11 +41,14 @@ export function CreateMoleculeDialog({
   project,
   initialValues,
   hideParentSelection = false,
+  showImportOption = true,
   onClose,
   onSubmit,
+  onImportJson,
 }: CreateMoleculeDialogProps) {
   const [draft, setDraft] = useState<MoleculeDraft>(emptyDraft);
   const [lookupOpen, setLookupOpen] = useState(false);
+  const importInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (!open) {
@@ -94,6 +99,41 @@ export function CreateMoleculeDialog({
 
           <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
             <div className="grid gap-4 md:grid-cols-2">
+              {showImportOption && onImportJson ? (
+                <div className="md:col-span-2 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-mist/80 bg-lab px-4 py-4">
+                  <div>
+                    <div className="text-sm font-semibold text-ink">Import rooted molecule JSON</div>
+                    <div className="mt-1 text-sm text-slate">
+                      Bring in one molecule JSON together with all of its connected upstream levels and attach that
+                      subtree in the current project.
+                    </div>
+                  </div>
+                  <div>
+                    <input
+                      className="hidden"
+                      onChange={(event) => {
+                        const file = event.target.files?.[0];
+                        if (!file) {
+                          return;
+                        }
+                        onImportJson(file);
+                        event.target.value = "";
+                      }}
+                      ref={importInputRef}
+                      type="file"
+                      accept="application/json,.json"
+                    />
+                    <button
+                      className="rounded-full border border-mist/80 bg-white px-4 py-2 text-sm font-medium text-slate transition hover:border-accent hover:text-accent"
+                      onClick={() => importInputRef.current?.click()}
+                      type="button"
+                    >
+                      Import JSON subtree
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+
               <div className="md:col-span-2 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-mist/80 bg-lab px-4 py-4">
                 <div>
                   <div className="text-sm font-semibold text-ink">Optional identity enrichment</div>

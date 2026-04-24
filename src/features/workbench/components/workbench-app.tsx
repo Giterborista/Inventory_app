@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 
 import {
   ChildDependencyDialog,
+  type ChildDependencyRowDraft,
   type ChildDependencySubmission,
 } from "@/features/workbench/components/child-dependency-dialog";
 import { CreateMoleculeDialog } from "@/features/workbench/components/create-molecule-dialog";
@@ -17,6 +18,7 @@ import {
   createMolecule,
   deleteMolecule,
   deleteReconstructionRow,
+  importMoleculeSubtree,
   linkExistingChildDependency,
   moveChildMolecule,
   moveRootMolecule,
@@ -169,7 +171,47 @@ export function WorkbenchApp() {
     setCreateDialogOpen(true);
   };
 
-  const handleCascadeChildSubmit = (payload: ChildDependencySubmission) => {
+  const handleImportSubtree = async (
+    file: File,
+    options?: {
+      parentMoleculeId?: string;
+      sourceRowId?: string;
+      rowValues?: ChildDependencyRowDraft;
+      replaceMoleculeId?: string;
+      navigateToImported?: boolean;
+    },
+  ) => {
+    try {
+      const importedState = await loadProjectJsonFile(file);
+      applyStateChange((current) =>
+        importMoleculeSubtree(current, importedState, {
+          parentMoleculeId: options?.parentMoleculeId,
+          sourceRowId: options?.sourceRowId,
+          rowValues: options?.rowValues,
+          replaceMoleculeId: options?.replaceMoleculeId,
+          navigateToImported: options?.navigateToImported,
+        }),
+      );
+      setCascadeParentMoleculeId(null);
+      setCreateDialogOpen(false);
+      setPendingChildRowId(null);
+      setPendingParentChildId(null);
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "The selected JSON subtree could not be imported.";
+      window.alert(message);
+    }
+  };
+
+  const handleCascadeChildSubmit = async (payload: ChildDependencySubmission) => {
+    if (payload.mode === "import") {
+      await handleImportSubtree(payload.file, {
+        parentMoleculeId: payload.parentMoleculeId,
+        rowValues: payload.row,
+      });
+      return;
+    }
+
     applyStateChange((current) => {
       if (payload.mode === "existing") {
         return linkExistingChildDependency(
@@ -369,6 +411,11 @@ export function WorkbenchApp() {
           }
           isExportingPdf={isExportingPdf}
           onExportPdfReport={exportPdfReport}
+          onImportMoleculeJson={(file) =>
+            void handleImportSubtree(file, {
+              replaceMoleculeId: selectedMolecule.id,
+            })
+          }
           onOpenMolecule={openMolecule}
           onRemoveManualParent={(parentMoleculeId) =>
             applyStateChange((current) => removeManualParentLink(current, selectedMolecule.id, parentMoleculeId))
@@ -433,9 +480,18 @@ export function WorkbenchApp() {
           setPendingChildRowId(null);
           setPendingParentChildId(null);
         }}
+        onImportJson={(file) =>
+          void handleImportSubtree(file, {
+            parentMoleculeId: pendingChildRowId ? state.selectedMoleculeId ?? undefined : undefined,
+            sourceRowId: pendingChildRowId ?? undefined,
+            replaceMoleculeId: pendingParentChildId ?? undefined,
+            navigateToImported: pendingChildRowId ? false : true,
+          })
+        }
         onSubmit={handleCreateMolecule}
         open={createDialogOpen}
         project={state.project}
+        showImportOption={!pendingParentChildId}
         submitLabel={createDialogSubmitLabel}
         title={createDialogTitle}
       />

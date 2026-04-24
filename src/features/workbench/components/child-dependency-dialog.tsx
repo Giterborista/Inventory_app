@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { PubChemLookupDialog } from "@/features/workbench/components/pubchem-lookup-dialog";
 import { StatusBadge } from "@/features/workbench/components/status-badge";
@@ -33,6 +33,12 @@ export type ChildDependencySubmission =
       mode: "new";
       parentMoleculeId: string;
       molecule: MoleculeDraft;
+      row: ChildDependencyRowDraft;
+    }
+  | {
+      mode: "import";
+      parentMoleculeId: string;
+      file: File;
       row: ChildDependencyRowDraft;
     };
 
@@ -71,12 +77,14 @@ export function ChildDependencyDialog({
   onClose,
   onSubmit,
 }: ChildDependencyDialogProps) {
-  const [mode, setMode] = useState<"existing" | "new">("existing");
+  const [mode, setMode] = useState<"existing" | "new" | "import">("existing");
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedMoleculeId, setSelectedMoleculeId] = useState<string | null>(null);
   const [moleculeDraft, setMoleculeDraft] = useState<MoleculeDraft>(emptyMoleculeDraft);
   const [rowDraft, setRowDraft] = useState<ChildDependencyRowDraft>(emptyRowDraft);
   const [lookupOpen, setLookupOpen] = useState(false);
+  const [importFile, setImportFile] = useState<File | null>(null);
+  const importInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (!open) {
@@ -89,6 +97,7 @@ export function ChildDependencyDialog({
     setMoleculeDraft(emptyMoleculeDraft);
     setRowDraft(emptyRowDraft);
     setLookupOpen(false);
+    setImportFile(null);
   }, [open, parentMolecule?.id]);
 
   const searchResults = useMemo(() => {
@@ -135,7 +144,9 @@ export function ChildDependencyDialog({
   const canSubmit =
     mode === "existing"
       ? Boolean(selectedMoleculeId && rowDraft.totalValue.trim())
-      : Boolean(moleculeDraft.name.trim() && rowDraft.totalValue.trim());
+      : mode === "new"
+        ? Boolean(moleculeDraft.name.trim() && rowDraft.totalValue.trim())
+        : Boolean(importFile && rowDraft.totalValue.trim());
 
   return (
     <>
@@ -178,6 +189,15 @@ export function ChildDependencyDialog({
                 type="button"
               >
                 Create new child molecule
+              </button>
+              <button
+                className={`rounded-full px-4 py-2.5 text-sm font-semibold transition ${
+                  mode === "import" ? "bg-ink text-white shadow-lg shadow-ink/10" : "bg-white/80 text-slate hover:text-ink"
+                }`}
+                onClick={() => setMode("import")}
+                type="button"
+              >
+                Import child JSON
               </button>
             </div>
 
@@ -241,7 +261,7 @@ export function ChildDependencyDialog({
                       </div>
                     ) : null}
                   </section>
-                ) : (
+                ) : mode === "new" ? (
                   <section className="rounded-3xl border border-mist/80 bg-lab p-4">
                     <div className="flex flex-wrap items-start justify-between gap-3">
                       <div>
@@ -360,6 +380,39 @@ export function ChildDependencyDialog({
                       </label>
                     </div>
                   </section>
+                ) : (
+                  <section className="rounded-3xl border border-mist/80 bg-lab p-4">
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div>
+                        <div className="text-sm font-semibold text-ink">Import child molecule JSON</div>
+                        <p className="mt-1 text-sm text-slate">
+                          Bring in a molecule JSON from another source. Its top-level root and all connected linked
+                          molecules will be attached beneath {parentMolecule.name}.
+                        </p>
+                      </div>
+                      <div>
+                        <input
+                          className="hidden"
+                          onChange={(event) => setImportFile(event.target.files?.[0] ?? null)}
+                          ref={importInputRef}
+                          type="file"
+                          accept="application/json,.json"
+                        />
+                        <button
+                          className="rounded-full border border-mist/80 bg-white px-4 py-2 text-sm font-medium text-slate transition hover:border-accent hover:text-accent"
+                          onClick={() => importInputRef.current?.click()}
+                          type="button"
+                        >
+                          Select JSON file
+                        </button>
+                      </div>
+                    </div>
+                    <div className="mt-4 rounded-2xl border border-dashed border-mist bg-white px-4 py-4 text-sm text-slate">
+                      {importFile
+                        ? `Selected file: ${importFile.name}`
+                        : "No JSON selected yet. Import expects one rooted molecule subtree."}
+                    </div>
+                  </section>
                 )}
 
                 <section className="rounded-3xl border border-mist/80 bg-lab p-4">
@@ -459,7 +512,14 @@ export function ChildDependencyDialog({
                         childMoleculeId: selectedMoleculeId,
                         row: rowDraft,
                       }
-                    : {
+                    : mode === "import" && importFile
+                      ? {
+                          mode: "import",
+                          parentMoleculeId: parentMolecule.id,
+                          file: importFile,
+                          row: rowDraft,
+                        }
+                      : {
                         mode: "new",
                         parentMoleculeId: parentMolecule.id,
                         molecule: {
@@ -473,7 +533,7 @@ export function ChildDependencyDialog({
               }
               type="button"
             >
-              Create linked child
+              {mode === "import" ? "Import linked child" : "Create linked child"}
             </button>
           </div>
         </div>
