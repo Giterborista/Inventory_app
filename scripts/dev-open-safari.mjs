@@ -1,8 +1,11 @@
+import { rmSync } from "node:fs";
 import { spawn } from "node:child_process";
 
 const host = "localhost";
 const port = 3000;
 const appUrl = `http://${host}:${port}`;
+
+rmSync(".next", { recursive: true, force: true });
 
 const nextCommand = process.platform === "win32" ? "npx.cmd" : "npx";
 const nextArgs = ["next", "dev"];
@@ -34,6 +37,9 @@ async function waitForServerAndOpen() {
     try {
       const response = await fetch(appUrl, { method: "GET" });
       if (response.ok || response.status >= 300) {
+        await new Promise((resolve) => {
+          openTimer = setTimeout(resolve, 2000);
+        });
         openInSafari();
         return;
       }

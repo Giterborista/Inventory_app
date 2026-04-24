@@ -81,14 +81,23 @@ function wrapLabel(value: string, maxLength = 30) {
   let current = "";
 
   for (const word of words) {
-    const next = current ? `${current} ${word}` : word;
-    if (next.length <= maxLength || current.length === 0) {
-      current = next;
-      continue;
+    const segments = word.length > maxLength ? word.match(new RegExp(`.{1,${Math.max(8, maxLength - 2)}}`, "g")) ?? [word] : [word];
+
+    for (const segment of segments) {
+      const next = current ? `${current} ${segment}` : segment;
+      if (next.length <= maxLength || current.length === 0) {
+        current = next;
+        continue;
+      }
+
+      lines.push(current);
+      current = segment;
+      if (lines.length === 1) {
+        break;
+      }
     }
-    lines.push(current);
-    current = word;
-    if (lines.length === 1) {
+
+    if (lines.length === 2) {
       break;
     }
   }
@@ -98,8 +107,8 @@ function wrapLabel(value: string, maxLength = 30) {
   }
 
   return lines.slice(0, 2).map((line, index, array) => {
-    if (index === array.length - 1 && trimmed.length > array.join(" ").length) {
-      return `${line.slice(0, Math.max(0, maxLength - 3))}...`;
+    if (index === array.length - 1 && trimmed.length > array.join(" ").replace(/\.\.\.$/, "").length) {
+      return `${line.slice(0, Math.max(0, maxLength - 3)).replace(/[,\s-]+$/, "")}...`;
     }
     return line;
   });
@@ -313,12 +322,6 @@ export function InterconnectionGraph({ project, visibleIds, onOpenMolecule }: In
     setIsDragging(false);
   };
 
-  const handleWheel = (event: React.WheelEvent<HTMLDivElement>) => {
-    event.preventDefault();
-    const multiplier = event.deltaY > 0 ? 0.92 : 1.08;
-    zoomBy(multiplier);
-  };
-
   const downloadHighQualityImage = async () => {
     const svgElement = svgRef.current;
     if (!svgElement) {
@@ -332,10 +335,13 @@ export function InterconnectionGraph({ project, visibleIds, onOpenMolecule }: In
     clone.style.removeProperty("height");
     clone.setAttribute("width", String(graph.width));
     clone.setAttribute("height", String(graph.height));
+    clone.setAttribute("xmlns", "http://www.w3.org/2000/svg");
+    clone.querySelectorAll("[filter]").forEach((element) => {
+      element.removeAttribute("filter");
+    });
 
-    const markup = `<?xml version="1.0" encoding="UTF-8"?>${clone.outerHTML}`;
-    const svgBlob = new Blob([markup], { type: "image/svg+xml;charset=utf-8" });
-    const svgUrl = URL.createObjectURL(svgBlob);
+    const markup = `<?xml version="1.0" encoding="UTF-8"?>${new XMLSerializer().serializeToString(clone)}`;
+    const svgUrl = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(markup)}`;
 
     try {
       const image = new Image();
@@ -368,8 +374,14 @@ export function InterconnectionGraph({ project, visibleIds, onOpenMolecule }: In
         .replace(/[^a-z0-9]+/g, "-")
         .replace(/^-+|-+$/g, "");
       link.click();
-    } finally {
-      URL.revokeObjectURL(svgUrl);
+    } catch {
+      const link = document.createElement("a");
+      link.href = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(markup)}`;
+      link.download = `${project.name || "project"}-dependency-tree.svg`
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-+|-+$/g, "");
+      link.click();
     }
   };
 
@@ -436,7 +448,6 @@ export function InterconnectionGraph({ project, visibleIds, onOpenMolecule }: In
           onPointerMove={handlePointerMove}
           onPointerUp={endDrag}
           onPointerCancel={endDrag}
-          onWheel={handleWheel}
           ref={wrapperRef}
           style={{ height: `${PREVIEW_HEIGHT}px`, touchAction: "none" }}
         >
@@ -518,6 +529,9 @@ export function InterconnectionGraph({ project, visibleIds, onOpenMolecule }: In
                   ? node.row.ecoinventStatus
                   : getEffectiveResolutionStatus(project, node.molecule!);
               const labelLines = wrapLabel(node.label, 30);
+              const labelBaseY = 36;
+              const casY = labelBaseY + labelLines.length * 24 + 8;
+              const badgeY = Math.min(casY + 12, NODE_HEIGHT - 40);
 
               return (
                 <g
@@ -548,12 +562,12 @@ export function InterconnectionGraph({ project, visibleIds, onOpenMolecule }: In
                       fontWeight="700"
                       key={`label:${node.instanceId}:${index}`}
                       x={node.x + 24}
-                      y={node.y + 36 + index * 24}
+                      y={node.y + labelBaseY + index * 24}
                     >
                       {line}
                     </text>
                   ))}
-                  <text fill="#61737a" fontSize="14" fontWeight="600" x={node.x + 24} y={node.y + 68}>
+                  <text fill="#61737a" fontSize="14" fontWeight="600" x={node.x + 24} y={node.y + casY}>
                     {node.casOrMeta}
                   </text>
                   {node.flagged ? (
@@ -566,9 +580,17 @@ export function InterconnectionGraph({ project, visibleIds, onOpenMolecule }: In
                         strokeWidth="1.7"
                         width="86"
                         x={node.x + 24}
-                        y={node.y + 70}
+                        y={node.y + badgeY}
                       />
-                      <text fill="#b35d39" fontSize="15" fontWeight="700" x={node.x + 67} y={node.y + 89}>
+                      <text
+                        dominantBaseline="middle"
+                        fill="#b35d39"
+                        fontSize="15"
+                        fontWeight="700"
+                        textAnchor="middle"
+                        x={node.x + 67}
+                        y={node.y + badgeY + 14}
+                      >
                         flagged
                       </text>
                     </>
