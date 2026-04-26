@@ -11,6 +11,7 @@ const emptyDraft: MoleculeDraft = {
   name: "",
   cas: "",
   iupac: "",
+  smiles: "",
   synonyms: "",
   ecoinventAliases: "",
   ecoinventStatus: "missing",
@@ -71,6 +72,7 @@ export function CreateMoleculeDialog({
       name: current.name || match.title || match.iupacName || current.name,
       cas: current.cas || match.matchedCas,
       iupac: match.iupacName || current.iupac,
+      smiles: current.smiles || match.canonicalSmiles || current.smiles,
       synonyms: getCuratedPubChemSynonymText(match),
       ecoinventAliases: current.ecoinventAliases || current.name || match.title || "",
       pubchemMatch: match,
@@ -207,6 +209,16 @@ export function CreateMoleculeDialog({
                   onChange={(event) => setDraft((current) => ({ ...current, cas: event.target.value }))}
                   placeholder="64-17-5"
                   value={draft.cas}
+                />
+              </label>
+
+              <label className="block md:col-span-2">
+                <span className="text-sm font-medium text-ink">SMILES</span>
+                <input
+                  className="mt-2 w-full rounded-2xl border border-mist bg-lab px-4 py-3 font-mono text-sm text-ink outline-none transition focus:border-accent"
+                  onChange={(event) => setDraft((current) => ({ ...current, smiles: event.target.value }))}
+                  placeholder="Canonical SMILES"
+                  value={draft.smiles}
                 />
               </label>
 

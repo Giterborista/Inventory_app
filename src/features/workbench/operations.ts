@@ -45,6 +45,7 @@ type MoleculeField =
   | "name"
   | "cas"
   | "iupac"
+  | "smiles"
   | "synonyms"
   | "ecoinventAliases"
   | "notes"
@@ -455,6 +456,7 @@ function mergeImportedRootMolecule(
     name: pickPreferredText(imported.name, current.name),
     cas: pickPreferredText(imported.cas, current.cas),
     iupac: pickPreferredText(imported.iupac, current.iupac),
+    smiles: pickPreferredText(imported.smiles, current.smiles),
     synonyms: combineStringLists(current.synonyms, imported.synonyms),
     ecoinventAliases: combineStringLists(current.ecoinventAliases, imported.ecoinventAliases),
     notes: pickPreferredText(imported.notes, current.notes),

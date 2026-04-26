@@ -104,6 +104,7 @@ export type ReconstructionRow = {
   reference: string;
   iupac: string;
   cas: string;
+  smiles: string;
   ecoinventStatus: ResolutionStatus;
   rawEcoinventStatus: string;
   ecoinventName: string;
@@ -174,6 +175,7 @@ export type MoleculeRecord = {
   name: string;
   cas: string;
   iupac: string;
+  smiles: string;
   synonyms: string[];
   ecoinventAliases: string[];
   notes: string;
@@ -221,6 +223,7 @@ export type MoleculeDraft = {
   name: string;
   cas: string;
   iupac: string;
+  smiles: string;
   synonyms: string;
   ecoinventAliases: string;
   notes: string;

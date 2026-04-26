@@ -62,6 +62,7 @@ const emptyMoleculeDraft: MoleculeDraft = {
   name: "",
   cas: "",
   iupac: "",
+  smiles: "",
   synonyms: "",
   ecoinventAliases: "",
   notes: "",
@@ -130,6 +131,7 @@ export function ChildDependencyDialog({
       name: current.name || match.title || match.iupacName || current.name,
       cas: current.cas || match.matchedCas,
       iupac: match.iupacName || current.iupac,
+      smiles: current.smiles || match.canonicalSmiles || current.smiles,
       synonyms: getCuratedPubChemSynonymText(match),
       ecoinventAliases: current.ecoinventAliases || current.name || match.title || "",
       pubchemMatch: match,
@@ -332,6 +334,14 @@ export function ChildDependencyDialog({
                           className="mt-2 w-full rounded-2xl border border-mist bg-white px-4 py-3 text-sm text-ink outline-none transition focus:border-accent"
                           onChange={(event) => setMoleculeDraft((current) => ({ ...current, cas: event.target.value }))}
                           value={moleculeDraft.cas}
+                        />
+                      </label>
+                      <label className="block md:col-span-2">
+                        <span className="text-sm font-medium text-ink">SMILES</span>
+                        <input
+                          className="mt-2 w-full rounded-2xl border border-mist bg-white px-4 py-3 font-mono text-sm text-ink outline-none transition focus:border-accent"
+                          onChange={(event) => setMoleculeDraft((current) => ({ ...current, smiles: event.target.value }))}
+                          value={moleculeDraft.smiles}
                         />
                       </label>
                       <label className="block md:col-span-2">

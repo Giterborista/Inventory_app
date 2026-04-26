@@ -43,6 +43,7 @@ type RowDraft = {
   scaledUnit: string;
   cas: string;
   iupac: string;
+  smiles: string;
   description: string;
   reference: string;
   notes: string;
@@ -75,6 +76,7 @@ function buildDraft(
     scaledUnit: row?.scaledUnit ?? row?.unit ?? "kg",
     cas: row?.cas ?? "",
     iupac: row?.iupac ?? "",
+    smiles: row?.smiles ?? "",
     description: row?.description ?? "",
     reference: row?.reference ?? "",
     notes: row?.notes ?? "",
@@ -267,6 +269,7 @@ export function RowEditorDialog({
       synonyms: getCuratedPubChemSynonymText(match),
       cas: current.cas || match.matchedCas,
       iupac: match.iupacName || current.iupac,
+      smiles: current.smiles || match.canonicalSmiles || current.smiles,
       formula: match.molecularFormula || current.formula,
       pubchemMatch: match,
       linkedMoleculeId: null,
@@ -290,6 +293,7 @@ export function RowEditorDialog({
     scaledUnit: draft.scaledUnit || draft.unit,
     cas: draft.cas,
     iupac: draft.iupac,
+    smiles: draft.smiles,
     description: draft.description,
     reference: draft.reference,
     notes: draft.notes,
@@ -420,6 +424,7 @@ export function RowEditorDialog({
                               synonyms: item.molecule.synonyms.join(", "),
                               cas: item.molecule.cas,
                               iupac: item.molecule.iupac,
+                              smiles: item.molecule.smiles,
                               formula: "",
                               pubchemMatch: null,
                               linkedMoleculeId: item.molecule.id,
@@ -441,6 +446,7 @@ export function RowEditorDialog({
                             scaledUnit: current.scaledUnit || item.row.scaledUnit,
                             cas: item.row.cas,
                             iupac: item.row.iupac,
+                            smiles: item.row.smiles,
                             formula: item.row.formula,
                             pubchemMatch: item.row.pubchemMatch ?? null,
                             linkedMoleculeId: null,
@@ -622,7 +628,17 @@ export function RowEditorDialog({
                 />
               </label>
 
-              <label className="block">
+              <label className="block md:col-span-2">
+                <span className="text-sm font-medium text-ink">SMILES</span>
+                <input
+                  className="mt-2 w-full rounded-2xl border border-mist bg-lab px-4 py-3 font-mono text-sm text-ink outline-none transition focus:border-accent"
+                  onChange={(event) => setDraft((current) => ({ ...current, smiles: event.target.value }))}
+                  placeholder="Canonical SMILES"
+                  value={draft.smiles}
+                />
+              </label>
+
+              <label className="block md:col-span-2">
                 <span className="text-sm font-medium text-ink">IUPAC</span>
                 <input
                   className="mt-2 w-full rounded-2xl border border-mist bg-lab px-4 py-3 text-sm text-ink outline-none transition focus:border-accent"
@@ -675,6 +691,12 @@ export function RowEditorDialog({
               {draft.formula ? (
                 <div className="rounded-2xl border border-mist/80 bg-white px-4 py-3 text-sm text-slate md:col-span-2">
                   <span className="font-medium text-ink">Molecular formula:</span> {draft.formula}
+                </div>
+              ) : null}
+              {draft.smiles ? (
+                <div className="rounded-2xl border border-mist/80 bg-white px-4 py-3 text-sm text-slate md:col-span-2">
+                  <span className="font-medium text-ink">SMILES:</span>{" "}
+                  <span className="font-mono text-[13px] text-ink">{draft.smiles}</span>
                 </div>
               ) : null}
               {draft.synonyms.trim() ? (

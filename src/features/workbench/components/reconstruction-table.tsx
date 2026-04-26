@@ -152,6 +152,7 @@ function SectionBlock({
                   <td className="px-3 py-4 text-sm text-slate">
                     <div className="font-mono">{row.cas || "—"}</div>
                     {row.iupac ? <div className="mt-1 text-xs">{row.iupac}</div> : null}
+                    {row.smiles ? <div className="mt-1 break-all font-mono text-[11px]">{row.smiles}</div> : null}
                   </td>
                   <td className="px-3 py-4 text-sm text-slate">
                     <div>{row.reference || "—"}</div>

@@ -45,6 +45,7 @@ type MoleculeWorkspaceProps = {
       | "name"
       | "cas"
       | "iupac"
+      | "smiles"
       | "notes"
       | "synonyms"
       | "ecoinventAliases"
@@ -229,6 +230,14 @@ export function MoleculeWorkspace({
                     className="mt-2 w-full rounded-2xl border border-mist/80 bg-lab px-4 py-3 font-mono text-sm text-ink outline-none transition focus:border-accent"
                     onChange={(event) => onUpdateMoleculeField("cas", event.target.value)}
                     value={molecule.cas}
+                  />
+                </label>
+                <label className="block md:col-span-2">
+                  <span className="text-sm font-medium text-ink">SMILES</span>
+                  <input
+                    className="mt-2 w-full rounded-2xl border border-mist/80 bg-lab px-4 py-3 font-mono text-sm text-ink outline-none transition focus:border-accent"
+                    onChange={(event) => onUpdateMoleculeField("smiles", event.target.value)}
+                    value={molecule.smiles}
                   />
                 </label>
                 <label className="block md:col-span-2">
@@ -424,6 +433,7 @@ export function MoleculeWorkspace({
           onUpdateMoleculeField("name", molecule.name || match.title || match.iupacName || molecule.name);
           onUpdateMoleculeField("cas", molecule.cas || match.matchedCas);
           onUpdateMoleculeField("iupac", match.iupacName || molecule.iupac);
+          onUpdateMoleculeField("smiles", molecule.smiles || match.canonicalSmiles || molecule.smiles);
           onUpdateMoleculeField("synonyms", nextSynonyms);
           onUpdateMoleculeField("ecoinventAliases", nextAliases);
           setLookupOpen(false);

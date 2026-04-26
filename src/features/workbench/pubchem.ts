@@ -8,6 +8,7 @@ type PubChemPropertyRecord = {
   MolecularFormula?: string;
   MolecularWeight?: string | number;
   CanonicalSMILES?: string;
+  ConnectivitySMILES?: string;
   InChI?: string;
   InChIKey?: string;
 };
@@ -343,7 +344,7 @@ export async function searchPubChem(query: string) {
       Properties?: PubChemPropertyRecord[];
     };
   }>(
-    `https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/cid/${cids.join(",")}/property/Title,IUPACName,MolecularFormula,MolecularWeight,CanonicalSMILES,InChI,InChIKey/JSON`,
+    `https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/cid/${cids.join(",")}/property/Title,IUPACName,MolecularFormula,MolecularWeight,CanonicalSMILES,ConnectivitySMILES,InChI,InChIKey/JSON`,
   );
 
   const propertyRecords = propertyPayload.PropertyTable?.Properties ?? [];
@@ -372,7 +373,7 @@ export async function searchPubChem(query: string) {
         iupacName: record.IUPACName ?? "",
         molecularFormula: record.MolecularFormula ?? "",
         molecularWeight: String(record.MolecularWeight ?? ""),
-        canonicalSmiles: record.CanonicalSMILES ?? "",
+        canonicalSmiles: record.CanonicalSMILES ?? record.ConnectivitySMILES ?? "",
         inchi: record.InChI ?? "",
         inchikey: record.InChIKey ?? "",
         synonyms,
