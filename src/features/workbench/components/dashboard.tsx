@@ -175,9 +175,9 @@ export function Dashboard({
               <div className="section-title">Project overview</div>
               <h2 className="mt-3 text-2xl font-semibold text-ink">Hierarchy-first navigation</h2>
               <p className="mt-1 max-w-3xl text-sm leading-6 text-slate">
-                Search across names, CAS, IUPAC, synonyms, and row references. Use the cascade as the primary view, then switch
-                to the interconnection graph for dependency QA. The open/save workflow is JSON-only and leaves no project data
-                behind when the session closes.
+                Search across molecule identity, row names, synonyms, SMILES, references, notes, evidence, documentation, and
+                linked dependency names. Use the cascade as the primary view, then switch to the interconnection graph for
+                dependency QA. The open/save workflow is JSON-only and leaves no project data behind when the session closes.
               </p>
             </div>
             <div className="flex flex-wrap items-center gap-3">
@@ -188,7 +188,7 @@ export function Dashboard({
               <input
                 className="w-full min-w-[18rem] max-w-md rounded-full border border-mist/90 bg-white px-4 py-3 text-sm text-ink shadow-sm outline-none transition focus:border-accent"
                 onChange={(event) => onSearchQueryChange(event.target.value)}
-                placeholder="Search by name, CAS, IUPAC, synonym, or row reference"
+                placeholder="Search anywhere in the project"
                 value={searchQuery}
               />
             </div>
@@ -196,7 +196,7 @@ export function Dashboard({
 
           {searchQuery.trim() && filteredMolecules.length > 0 ? (
             <div className="mt-5 flex flex-wrap gap-3">
-              {filteredMolecules.slice(0, 6).map((molecule) => (
+              {filteredMolecules.map((molecule) => (
                 <button
                   key={molecule.id}
                   className="rounded-2xl border border-mist/80 bg-white px-4 py-3 text-left shadow-sm transition hover:-translate-y-0.5 hover:border-accent"

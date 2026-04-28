@@ -42,7 +42,7 @@ import {
   loadProjectJsonFile,
   openPrintReport,
 } from "@/features/workbench/exporters";
-import { getMoleculeById, getUnresolvedMolecules } from "@/features/workbench/selectors";
+import { getHierarchySearchMatches, getMoleculeById, getUnresolvedMolecules } from "@/features/workbench/selectors";
 import { createEmptyWorkbenchState, makeClientId, nowIso } from "@/features/workbench/state-utils";
 import type { MoleculeDraft, ReconstructionRow, WorkbenchState } from "@/features/workbench/types";
 
@@ -118,26 +118,7 @@ export function WorkbenchApp() {
   };
 
   const selectedMolecule = getMoleculeById(state.project, state.selectedMoleculeId);
-  const filteredMolecules = !searchQuery.trim()
-    ? state.project.molecules
-    : state.project.molecules.filter((molecule) => {
-        const query = searchQuery.trim().toLowerCase();
-        const moleculeTokens = [
-          molecule.name,
-          molecule.cas,
-          molecule.iupac,
-          molecule.sourceWorkbook,
-          molecule.ecoinventCheck?.datasetName ?? "",
-          molecule.ecoinventCheck?.searchQuery ?? "",
-          ...molecule.ecoinventAliases,
-          ...molecule.synonyms,
-          ...molecule.rows.flatMap((row) => [row.name, ...(row.synonyms ?? []), row.ro, row.cas, row.reference]),
-        ]
-          .join(" ")
-          .toLowerCase();
-
-        return moleculeTokens.includes(query);
-      });
+  const filteredMolecules = getHierarchySearchMatches(state.project, searchQuery);
   const unresolvedMolecules = getUnresolvedMolecules(state.project);
 
   const openMolecule = (moleculeId: string) => {

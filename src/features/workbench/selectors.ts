@@ -1,3 +1,4 @@
+import { normalizeText } from "@/features/workbench/state-utils";
 import type {
   EvidenceRecord,
   ImportWarning,
@@ -255,4 +256,80 @@ export function getOpenImportWarnings(project: ProjectRecord) {
 export function getExportVersionLabel(molecule: MoleculeRecord) {
   const latest = molecule.exports.at(-1);
   return latest ? `v${latest.version}` : "Not exported";
+}
+
+function buildMoleculeSearchableText(project: ProjectRecord, molecule: MoleculeRecord) {
+  const linkedMoleculeNames = molecule.rows
+    .map((row) => (row.linkedMoleculeId ? getMoleculeById(project, row.linkedMoleculeId)?.name ?? "" : ""))
+    .filter(Boolean);
+
+  const parentNames = getParentMolecules(project, molecule.id).map((parent) => parent.name);
+  const childNames = getChildMolecules(project, molecule.id).map((child) => child.name);
+
+  return normalizeText(
+    [
+      molecule.name,
+      molecule.cas,
+      molecule.iupac,
+      molecule.smiles,
+      molecule.notes,
+      molecule.sourceWorkbook,
+      molecule.sourceSheet,
+      molecule.ecoinventCheck?.datasetName ?? "",
+      molecule.ecoinventCheck?.searchQuery ?? "",
+      molecule.ecoinventCheck?.decisionNote ?? "",
+      ...molecule.ecoinventAliases,
+      ...molecule.synonyms,
+      ...parentNames,
+      ...childNames,
+      ...linkedMoleculeNames,
+      ...molecule.rows.flatMap((row) => [
+        row.name,
+        ...(row.synonyms ?? []),
+        row.ro,
+        row.cas,
+        row.iupac,
+        row.smiles,
+        row.reference,
+        row.description,
+        row.notes,
+        row.formula,
+        row.relevant,
+        row.ecoinventName,
+        row.sourceWorkbook,
+        row.sourceSheet,
+      ]),
+      ...molecule.evidence.flatMap((evidence) => [
+        evidence.citation,
+        evidence.identifier,
+        evidence.locator,
+        evidence.summary,
+        evidence.sourceWorkbook,
+        evidence.sourceSheet,
+      ]),
+      molecule.documentation.referenceAndScope,
+      molecule.documentation.functionalUnit,
+      molecule.documentation.pasAssumptions,
+      molecule.documentation.balancedEquation,
+      molecule.documentation.calculationNotes,
+      ...molecule.documentation.explanationLines.flatMap((line) => [
+        line.step,
+        line.parameterDecision,
+        line.ruleCalculation,
+        line.result,
+        line.explanation,
+      ]),
+    ]
+      .filter(Boolean)
+      .join(" "),
+  );
+}
+
+export function getHierarchySearchMatches(project: ProjectRecord, query: string) {
+  const normalizedQuery = normalizeText(query);
+  if (!normalizedQuery) {
+    return project.molecules;
+  }
+
+  return project.molecules.filter((molecule) => buildMoleculeSearchableText(project, molecule).includes(normalizedQuery));
 }
