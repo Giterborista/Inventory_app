@@ -2,13 +2,14 @@
 
 import { useMemo, useState } from "react";
 
+import { ReviewStatusIcon, ReviewStatusPill } from "@/features/workbench/components/review-status-icon";
 import { StatusBadge } from "@/features/workbench/components/status-badge";
-import { resolutionLabels, resolutionTone } from "@/features/workbench/display";
 import {
   getChildMolecules,
-  getEffectiveResolutionStatus,
   getLinkedMolecule,
+  getMoleculeInventoryReviewState,
   getMoleculeRows,
+  getRowInventoryReviewIssues,
   getTopLevelMolecules,
 } from "@/features/workbench/selectors";
 import type { MoleculeRecord, ProjectRecord, ReconstructionRow } from "@/features/workbench/types";
@@ -17,33 +18,39 @@ type HierarchyTreeProps = {
   project: ProjectRecord;
   visibleIds: Set<string> | null;
   onOpenMolecule: (moleculeId: string) => void;
-  onAddChildDependency: (parentMoleculeId: string) => void;
+  onAddInputRow: (moleculeId: string) => void;
   onCreateParentMolecule: (childMoleculeId: string) => void;
   onCreateTopLevelMolecule: () => void;
 };
 
 function IngredientNode({
+  molecule,
+  project,
   row,
   depth,
 }: {
+  molecule: MoleculeRecord;
+  project: ProjectRecord;
   row: ReconstructionRow;
   depth: number;
 }) {
+  const reviewItems = getRowInventoryReviewIssues(project, molecule, row);
+
   return (
     <div
-      className="relative overflow-hidden rounded-[1.55rem] border border-mist/70 bg-lab/85 px-5 py-4 shadow-sm"
-      style={{ marginLeft: `${depth * 30}px` }}
+      className="rounded-lg border border-mist bg-white px-4 py-3 shadow-sm"
+      style={{ marginLeft: `${depth * 22}px` }}
     >
-      <div
-        className="absolute left-0 top-0 h-full w-1.5 rounded-r-full bg-slate/10"
-        style={{ opacity: Math.max(0.14, 0.56 - depth * 0.09) }}
-      />
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="text-[0.98rem] font-semibold text-ink">{row.name || "Unnamed ingredient"}</div>
           <div className="mt-1 flex flex-wrap gap-2 text-xs text-slate">
-            <span className="font-mono">{row.cas || "No CAS"}</span>
-            <span>•</span>
+            {row.cas ? (
+              <>
+                <span className="font-mono">{row.cas}</span>
+                <span>/</span>
+              </>
+            ) : null}
             <span>Input ingredient</span>
           </div>
           {row.reference || row.description ? (
@@ -52,7 +59,11 @@ function IngredientNode({
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          <StatusBadge label={resolutionLabels[row.ecoinventStatus]} tone={resolutionTone(row.ecoinventStatus)} />
+          {reviewItems.length > 0 ? (
+            reviewItems.slice(0, 1).map((item) => <ReviewStatusPill key={item.label} label={item.label} state={item.state} />)
+          ) : (
+            <ReviewStatusIcon state="ok" />
+          )}
           {row.ecoinventName ? <div className="text-xs text-slate">{row.ecoinventName}</div> : null}
         </div>
       </div>
@@ -71,7 +82,7 @@ function TreeNode({
   setExpandedIds,
   visibleIds,
   onOpenMolecule,
-  onAddChildDependency,
+  onAddInputRow,
   onCreateParentMolecule,
 }: {
   molecule: MoleculeRecord;
@@ -84,10 +95,14 @@ function TreeNode({
   setExpandedIds: (value: Set<string> | ((current: Set<string>) => Set<string>)) => void;
   visibleIds: Set<string> | null;
   onOpenMolecule: (moleculeId: string) => void;
-  onAddChildDependency: (parentMoleculeId: string) => void;
+  onAddInputRow: (moleculeId: string) => void;
   onCreateParentMolecule: (childMoleculeId: string) => void;
 }) {
-  const displayStatus = getEffectiveResolutionStatus(project, molecule);
+  const reviewState = getMoleculeInventoryReviewState(project, molecule);
+  const referenceProductName = molecule.referenceProductName || molecule.name;
+  const activityLabel = `${molecule.activityType || "Production of"} ${
+    referenceProductName || "untitled reference product"
+  }`.trim();
   const childMolecules = getChildMolecules(project, molecule.id).filter((child) => !visibleIds || visibleIds.has(child.id));
   const inputRows = getMoleculeRows(molecule, "INPUT");
   const displayEntries = showAllIngredients
@@ -111,20 +126,16 @@ function TreeNode({
   return (
     <div className="space-y-2">
       <div
-        className="relative overflow-hidden rounded-[1.7rem] border border-mist/80 bg-white/90 px-5 py-4 shadow-sm"
-        style={{ marginLeft: `${depth * 30}px` }}
+        className="rounded-lg border border-mist bg-white px-4 py-3 shadow-sm transition hover:border-accent/35"
+        style={{ marginLeft: `${depth * 22}px` }}
       >
-        <div
-          className="absolute left-0 top-0 h-full w-1.5 rounded-r-full bg-accent/20"
-          style={{ opacity: Math.max(0.18, 0.68 - depth * 0.12) }}
-        />
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex min-w-0 items-center gap-3">
             <button
               className={`flex h-8 w-8 items-center justify-center rounded-full border text-sm font-semibold transition ${
                 hasChildren
                   ? "border-mist bg-lab text-ink hover:border-accent hover:text-accent"
-                  : "border-mist/50 bg-white text-slate"
+                  : "pointer-events-none border-transparent bg-transparent"
               }`}
               onClick={() =>
                 hasChildren
@@ -141,7 +152,7 @@ function TreeNode({
               }
               type="button"
             >
-              {hasChildren ? (expanded ? "−" : "+") : "·"}
+              {hasChildren ? (expanded ? "−" : "+") : null}
             </button>
 
             <div className="min-w-0">
@@ -150,15 +161,19 @@ function TreeNode({
                 onClick={() => onOpenMolecule(molecule.id)}
                 type="button"
               >
-                {molecule.name}
+                {activityLabel}
               </button>
               <div className="mt-1 flex flex-wrap gap-2 text-xs text-slate">
-                <span className="font-mono">{molecule.cas || "No CAS"}</span>
-                <span>•</span>
-                <span>{depth === 0 ? (molecule.topLevel ? "Root molecule" : "Unplaced root") : `Depth ${depth}`}</span>
+                {molecule.cas ? (
+                  <>
+                    <span className="font-mono">{molecule.cas}</span>
+                    <span>/</span>
+                  </>
+                ) : null}
+                <span>{depth === 0 ? (molecule.topLevel ? "Root activity" : "Unplaced activity") : `Depth ${depth}`}</span>
                 {viaRow?.reference ? (
                   <>
-                    <span>•</span>
+                    <span>/</span>
                     <span>{viaRow.reference}</span>
                   </>
                 ) : null}
@@ -168,27 +183,27 @@ function TreeNode({
 
           <div className="flex flex-wrap items-center gap-2">
             <button
-              className="rounded-full border border-mist/80 bg-white px-3 py-1.5 text-xs font-semibold text-slate transition hover:border-accent hover:text-accent"
+              className="rounded-md border border-mist/80 bg-white px-3 py-1.5 text-xs font-semibold text-slate transition hover:border-accent hover:text-accent"
               onClick={() => {
                 setExpandedIds((current) => {
                   const next = new Set(current);
                   next.add(molecule.id);
                   return next;
                 });
-                onAddChildDependency(molecule.id);
+                onAddInputRow(molecule.id);
               }}
               type="button"
             >
-              Add child
+              Add input
             </button>
             <button
-              className="rounded-full border border-mist/80 bg-white px-3 py-1.5 text-xs font-semibold text-slate transition hover:border-accent hover:text-accent"
+              className="rounded-md border border-mist/80 bg-white px-3 py-1.5 text-xs font-semibold text-slate transition hover:border-accent hover:text-accent"
               onClick={() => onCreateParentMolecule(molecule.id)}
               type="button"
             >
-              Add parent
+              Add parent activity
             </button>
-            <StatusBadge label={resolutionLabels[displayStatus]} tone={resolutionTone(displayStatus)} />
+            <ReviewStatusIcon state={reviewState} />
             {molecule.placeholder ? <StatusBadge label="Placeholder record" tone="ink" /> : null}
             {cycleDetected ? <StatusBadge label="Cycle" tone="alert" /> : null}
           </div>
@@ -196,7 +211,7 @@ function TreeNode({
       </div>
 
       {expanded && !cycleDetected ? (
-        <div className="space-y-2 border-l border-mist/70 pl-3">
+        <div className="space-y-2 border-l border-mist pl-3">
           {displayEntries.map((entry) =>
             entry.kind === "molecule" ? (
               <TreeNode
@@ -205,7 +220,7 @@ function TreeNode({
                 expandedIds={expandedIds}
                 molecule={entry.molecule}
                 onOpenMolecule={onOpenMolecule}
-                onAddChildDependency={onAddChildDependency}
+                onAddInputRow={onAddInputRow}
                 onCreateParentMolecule={onCreateParentMolecule}
                 path={new Set([...path, molecule.id])}
                 project={project}
@@ -215,7 +230,7 @@ function TreeNode({
                 visibleIds={visibleIds}
               />
             ) : (
-              <IngredientNode key={entry.row.id} depth={depth + 1} row={entry.row} />
+              <IngredientNode key={entry.row.id} depth={depth + 1} molecule={molecule} project={project} row={entry.row} />
             ),
           )}
         </div>
@@ -228,7 +243,7 @@ export function HierarchyTree({
   project,
   visibleIds,
   onOpenMolecule,
-  onAddChildDependency,
+  onAddInputRow,
   onCreateParentMolecule,
   onCreateTopLevelMolecule,
 }: HierarchyTreeProps) {
@@ -240,37 +255,32 @@ export function HierarchyTree({
   );
 
   return (
-    <section className="panel-surface rounded-[2.1rem] border border-white/70 p-6">
+    <section className="panel-surface rounded-lg border border-white/80 p-4 sm:p-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <div className="section-title">Cascade hierarchy</div>
-          <h2 className="mt-3 text-[1.75rem] font-semibold text-ink">Dependency cascade</h2>
-          <p className="mt-2 text-sm leading-6 text-slate">
-            Main molecules are shown first. Expand each level to inspect child molecules and deeper dependency chains.
-          </p>
-        </div>
-        <div className="flex items-center gap-3">
-          <StatusBadge label={`${rootMolecules.length} top-level`} tone="ink" />
-          <label className="flex items-center gap-2 rounded-full border border-mist/80 bg-white/80 px-3 py-2 text-xs font-semibold text-slate shadow-sm">
+        <h2 className="text-2xl font-semibold text-ink">Inventory</h2>
+        <div className="flex flex-wrap items-center gap-2">
+          <label className="inline-flex h-10 items-center gap-2 rounded-md border border-mist/80 bg-white/90 px-3 text-xs font-semibold text-slate shadow-sm transition hover:border-accent/30 hover:text-ink active:scale-[0.98]">
             <input
               checked={showAllIngredients}
               className="h-4 w-4 rounded border-mist text-accent focus:ring-accent"
               onChange={(event) => setShowAllIngredients(event.target.checked)}
               type="checkbox"
             />
-            Show all input ingredients
+            Show inputs
           </label>
-          <button
-            className="rounded-full bg-accent px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-accent/15 transition hover:bg-ink"
-            onClick={onCreateTopLevelMolecule}
-            type="button"
-          >
-            Add top-level molecule
-          </button>
+          {rootMolecules.length > 0 ? (
+            <button
+              className="inline-flex h-10 items-center rounded-md bg-accent px-4 text-xs font-semibold text-white shadow-sm transition hover:bg-ink active:scale-[0.98]"
+              onClick={onCreateTopLevelMolecule}
+              type="button"
+            >
+              Add activity
+            </button>
+          ) : null}
         </div>
       </div>
 
-      <div className="mt-6 space-y-3">
+      <div className="mt-7 space-y-3">
         {rootMolecules.length > 0 ? (
           rootMolecules.map((molecule) => (
             <TreeNode
@@ -279,7 +289,7 @@ export function HierarchyTree({
               expandedIds={expandedIds}
               molecule={molecule}
               onOpenMolecule={onOpenMolecule}
-              onAddChildDependency={onAddChildDependency}
+              onAddInputRow={onAddInputRow}
               onCreateParentMolecule={onCreateParentMolecule}
               path={new Set()}
               project={project}
@@ -289,14 +299,19 @@ export function HierarchyTree({
             />
           ))
         ) : (
-          <div className="rounded-2xl border border-dashed border-mist bg-lab px-4 py-8 text-sm text-slate">
-            <div>No molecules yet. Start the process chain by creating the first top-level molecule.</div>
+          <div className="rounded-lg border border-dashed border-mist bg-lab/90 px-6 py-8 text-sm text-slate shadow-inner">
+            <div className="max-w-2xl">
+              <div className="text-xl font-semibold text-ink">No activities yet</div>
+              <div className="mt-2 leading-6">
+                Start by naming the product or process you want to model.
+              </div>
+            </div>
             <button
-              className="mt-4 rounded-full bg-accent px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-accent/15 transition hover:bg-ink"
+              className="mt-5 rounded-md bg-accent px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-ink"
               onClick={onCreateTopLevelMolecule}
               type="button"
             >
-              Create first molecule
+              Create first activity
             </button>
           </div>
         )}

@@ -5,12 +5,13 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        ink: "#132021",
-        slate: "#4b6165",
-        mist: "#e5eeef",
-        lab: "#f6fbfb",
-        alert: "#7e1d16",
-        accent: "#0d5d59",
+        ink: "#10243a",
+        slate: "#667586",
+        mist: "#d8e1ea",
+        lab: "#f4f7fa",
+        alert: "#b94855",
+        accent: "#173b5f",
+        sea: "#4f9a91",
       },
     },
   },

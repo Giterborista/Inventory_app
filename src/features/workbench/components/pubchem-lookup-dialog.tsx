@@ -66,7 +66,7 @@ export function PubChemLookupDialog({
 
   return (
     <div className="fixed inset-0 z-[70] flex items-start justify-center overflow-y-auto bg-ink/40 px-4 py-10 backdrop-blur-sm">
-      <div className="hero-surface w-full max-w-4xl rounded-[2.2rem] border border-white/70 p-6 shadow-xl">
+      <div className="hero-surface w-full max-w-4xl rounded-lg border border-white/70 p-6 shadow-xl">
         <div className="flex items-start justify-between gap-4">
           <div>
             <div className="section-title">PubChem lookup</div>
@@ -76,7 +76,7 @@ export function PubChemLookupDialog({
             </p>
           </div>
           <button
-            className="rounded-full border border-mist px-4 py-2 text-sm font-medium text-slate transition hover:border-accent hover:text-accent"
+            className="rounded-md border border-mist px-4 py-2 text-sm font-medium text-slate transition hover:border-accent hover:text-accent"
             onClick={onClose}
             type="button"
           >
@@ -88,24 +88,24 @@ export function PubChemLookupDialog({
           <label className="min-w-0 flex-1">
             <span className="text-sm font-medium text-ink">Query</span>
             <input
-              className="mt-2 w-full rounded-2xl border border-mist bg-white px-4 py-3 text-sm text-ink outline-none transition focus:border-accent"
+              className="mt-2 w-full rounded-lg border border-mist bg-white px-4 py-3 text-sm text-ink outline-none transition focus:border-accent"
               onChange={(event) => setQuery(event.target.value)}
               placeholder="CAS, name, IUPAC, or synonym"
               value={query}
             />
           </label>
           <button
-            className="rounded-full bg-accent px-5 py-3 text-sm font-semibold text-white transition enabled:hover:bg-ink disabled:cursor-not-allowed disabled:bg-mist"
+            className="rounded-md bg-accent px-5 py-3 text-sm font-semibold text-white transition enabled:hover:bg-ink disabled:cursor-not-allowed disabled:bg-mist"
             disabled={!trimmedQuery || loading}
             onClick={() => void runLookup()}
             type="button"
           >
-            {loading ? "Searching…" : "Search PubChem"}
+            {loading ? "Searching..." : "Search PubChem"}
           </button>
         </div>
 
         {error ? (
-          <div className="mt-4 rounded-2xl border border-alert/20 bg-alert/10 px-4 py-3 text-sm text-alert">
+          <div className="mt-4 rounded-lg border border-alert/20 bg-alert/10 px-4 py-3 text-sm text-alert">
             {error}
           </div>
         ) : null}
@@ -114,7 +114,7 @@ export function PubChemLookupDialog({
           {results.map((match) => (
             <div
               key={match.cid}
-              className="rounded-[1.7rem] border border-mist/80 bg-white px-5 py-4 shadow-sm"
+              className="rounded-lg border border-mist/80 bg-white px-5 py-4 shadow-sm"
             >
               <div className="flex flex-wrap items-start justify-between gap-4">
                 <div className="min-w-0 flex-1">
@@ -126,22 +126,22 @@ export function PubChemLookupDialog({
                   </div>
                   <div className="mt-2 grid gap-3 md:grid-cols-2">
                     <div className="text-sm text-slate">
-                      <span className="font-medium text-ink">IUPAC:</span> {match.iupacName || "—"}
+                      <span className="font-medium text-ink">IUPAC:</span> {match.iupacName || "-"}
                     </div>
                     <div className="text-sm text-slate">
-                      <span className="font-medium text-ink">Formula:</span> {match.molecularFormula || "—"}
+                      <span className="font-medium text-ink">Formula:</span> {match.molecularFormula || "-"}
                     </div>
                     <div className="text-sm text-slate">
-                      <span className="font-medium text-ink">Molecular weight:</span> {match.molecularWeight || "—"}
+                      <span className="font-medium text-ink">Molecular weight:</span> {match.molecularWeight || "-"}
                     </div>
                     <div className="text-sm text-slate">
-                      <span className="font-medium text-ink">InChIKey:</span> {match.inchikey || "—"}
+                      <span className="font-medium text-ink">InChIKey:</span> {match.inchikey || "-"}
                     </div>
                     <div className="text-sm text-slate">
-                      <span className="font-medium text-ink">Matched term:</span> {match.matchedTerm || "—"}
+                      <span className="font-medium text-ink">Matched term:</span> {match.matchedTerm || "-"}
                     </div>
                     <div className="text-sm text-slate">
-                      <span className="font-medium text-ink">Matched by:</span> {match.matchedBy.join(", ") || "—"}
+                      <span className="font-medium text-ink">Matched by:</span> {match.matchedBy.join(", ") || "-"}
                     </div>
                   </div>
                   {match.synonyms.length > 0 ? (
@@ -154,7 +154,7 @@ export function PubChemLookupDialog({
 
                 <div className="flex flex-wrap gap-2">
                   <a
-                    className="rounded-full border border-mist/80 bg-white px-4 py-2 text-sm font-medium text-slate transition hover:border-accent hover:text-accent"
+                    className="rounded-md border border-mist/80 bg-white px-4 py-2 text-sm font-medium text-slate transition hover:border-accent hover:text-accent"
                     href={match.pubchemUrl}
                     rel="noreferrer"
                     target="_blank"
@@ -162,7 +162,7 @@ export function PubChemLookupDialog({
                     Open PubChem
                   </a>
                   <button
-                    className="rounded-full bg-accent px-4 py-2 text-sm font-semibold text-white transition hover:bg-ink"
+                    className="rounded-md bg-accent px-4 py-2 text-sm font-semibold text-white transition hover:bg-ink"
                     onClick={() => onSelect(match)}
                     type="button"
                   >
@@ -174,7 +174,7 @@ export function PubChemLookupDialog({
           ))}
 
           {!loading && !error && results.length === 0 ? (
-            <div className="rounded-2xl border border-dashed border-mist bg-lab px-4 py-8 text-sm text-slate">
+            <div className="rounded-lg border border-dashed border-mist bg-lab px-4 py-8 text-sm text-slate">
               No results yet. Search PubChem to enrich this molecule or row with candidate identity data.
             </div>
           ) : null}

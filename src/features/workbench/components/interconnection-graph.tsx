@@ -2,7 +2,6 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 
-import { StatusBadge } from "@/features/workbench/components/status-badge";
 import {
   getEffectiveResolutionStatus,
   getMoleculeRows,
@@ -45,7 +44,7 @@ type TreeRoot = {
 
 const NODE_WIDTH = 330;
 const NODE_HEIGHT = 110;
-const CARD_RADIUS = 28;
+const CARD_RADIUS = 8;
 const HORIZONTAL_GAP = 48;
 const LEVEL_GAP = 158;
 const ROOT_GAP = 84;
@@ -217,8 +216,8 @@ export function InterconnectionGraph({ project, visibleIds, onOpenMolecule }: In
         instanceId: instancePath,
         sourceId: molecule.id,
         kind: "molecule",
-        label: molecule.name,
-        casOrMeta: molecule.cas || "No CAS",
+        label: `${molecule.activityType || "Production of"} ${molecule.referenceProductName || molecule.name}`.trim(),
+        casOrMeta: molecule.referenceProductName || "Reference product not defined",
         flagged:
           molecule.placeholder ||
           molecule.needsReview ||
@@ -385,63 +384,58 @@ export function InterconnectionGraph({ project, visibleIds, onOpenMolecule }: In
     }
   };
 
+  const graphControlClass =
+    "h-10 border-r border-mist px-4 text-xs font-semibold text-slate transition hover:bg-white hover:text-accent active:scale-[0.98] last:border-r-0";
+
   return (
-    <section className="panel-surface rounded-[2.1rem] border border-white/70 p-6">
+    <section className="panel-surface rounded-lg border border-white/80 p-4 sm:p-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <div className="section-title">Preview tree</div>
-          <h2 className="mt-3 text-[1.75rem] font-semibold text-ink">Vertical dependency map</h2>
-          <p className="mt-2 max-w-3xl text-sm leading-6 text-slate">
-            Read the molecule structure top to bottom. Each branch is expanded as a clean tree preview to cut line
-            crossings and keep upstream chains readable. Reused molecules are repeated visually when needed so the
-            structure stays easy to inspect.
-          </p>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <label className="flex items-center gap-2 rounded-full border border-mist/80 bg-white/80 px-3 py-2 text-xs font-semibold text-slate shadow-sm">
-            <input
-              checked={showAllIngredients}
-              className="h-4 w-4 rounded border-mist text-accent focus:ring-accent"
-              onChange={(event) => setShowAllIngredients(event.target.checked)}
-              type="checkbox"
-            />
-            Show complete tree with ingredients
-          </label>
-          <button
-            className="rounded-full border border-mist/80 bg-white/80 px-3 py-2 text-xs font-semibold text-slate shadow-sm transition hover:border-accent hover:text-accent"
-            onClick={() => zoomBy(1.14)}
-            type="button"
-          >
-            Zoom in
-          </button>
-          <button
-            className="rounded-full border border-mist/80 bg-white/80 px-3 py-2 text-xs font-semibold text-slate shadow-sm transition hover:border-accent hover:text-accent"
-            onClick={() => zoomBy(0.88)}
-            type="button"
-          >
-            Zoom out
-          </button>
-          <button
-            className="rounded-full border border-mist/80 bg-white/80 px-3 py-2 text-xs font-semibold text-slate shadow-sm transition hover:border-accent hover:text-accent"
-            onClick={resetView}
-            type="button"
-          >
-            Reset
-          </button>
-          <button
-            className="rounded-full border border-mist/80 bg-white/80 px-3 py-2 text-xs font-semibold text-slate shadow-sm transition hover:border-accent hover:text-accent"
-            onClick={() => void downloadHighQualityImage()}
-            type="button"
-          >
-            Download image
-          </button>
-          <StatusBadge label="Flagged" tone="alert" />
-        </div>
+        <h2 className="text-2xl font-semibold text-ink">Graph</h2>
+        <label className="inline-flex h-10 items-center gap-2 rounded-md border border-mist/80 bg-white px-3 text-xs font-semibold text-slate shadow-sm transition hover:border-accent/30 hover:text-ink active:scale-[0.98]">
+          <input
+            checked={showAllIngredients}
+            className="h-4 w-4 rounded border-mist text-accent focus:ring-accent"
+            onChange={(event) => setShowAllIngredients(event.target.checked)}
+            type="checkbox"
+          />
+          Show inputs
+        </label>
+      </div>
+
+      <div className="mt-4 flex flex-wrap items-center overflow-hidden rounded-lg border border-mist/80 bg-lab shadow-inner">
+        <button
+          className={graphControlClass}
+          onClick={() => zoomBy(1.14)}
+          type="button"
+        >
+          Zoom in
+        </button>
+        <button
+          className={graphControlClass}
+          onClick={() => zoomBy(0.88)}
+          type="button"
+        >
+          Zoom out
+        </button>
+        <button
+          className={graphControlClass}
+          onClick={resetView}
+          type="button"
+        >
+          Reset graph position
+        </button>
+        <button
+          className={graphControlClass}
+          onClick={() => void downloadHighQualityImage()}
+          type="button"
+        >
+          Download image
+        </button>
       </div>
 
       {graph.roots.length > 0 ? (
         <div
-          className={`mt-6 overflow-hidden rounded-[1.9rem] border border-mist/80 bg-[#f6faf9] ${
+          className={`mt-5 overflow-hidden rounded-lg border border-mist/80 bg-lab ${
             isDragging ? "cursor-grabbing" : "cursor-grab"
           }`}
           onPointerDown={handlePointerDown}
@@ -462,14 +456,14 @@ export function InterconnectionGraph({ project, visibleIds, onOpenMolecule }: In
             viewBox={`0 0 ${graph.width} ${graph.height}`}
             width={graph.width}
           >
-            <rect fill="#f7fbfa" height={graph.height} rx="32" width={graph.width} />
+            <rect fill="#f4f7fa" height={graph.height} rx="8" width={graph.width} />
 
             {graph.roots.map((entry, index) => (
               <rect
-                fill={index % 2 === 0 ? "#edf6f4" : "#f8fbfa"}
+                fill={index % 2 === 0 ? "#eef2f6" : "#f7f9fb"}
                 height={entry.height + 48}
                 key={`tree-band:${entry.root.instanceId}`}
-                rx="28"
+                rx="8"
                 width={graph.width - 32}
                 x={16}
                 y={entry.root.y - 24}
@@ -488,7 +482,7 @@ export function InterconnectionGraph({ project, visibleIds, onOpenMolecule }: In
                 return (
                   <g key={`connector:${node.instanceId}`}>
                     <line
-                      stroke="#96abac"
+                      stroke="#a8b8c5"
                       strokeLinecap="round"
                       strokeWidth="3"
                       x1={parentCenterX}
@@ -498,7 +492,7 @@ export function InterconnectionGraph({ project, visibleIds, onOpenMolecule }: In
                     />
                     {node.children.length > 1 ? (
                       <line
-                        stroke="#96abac"
+                        stroke="#a8b8c5"
                         strokeLinecap="round"
                         strokeWidth="3"
                         x1={Math.min(...childCenters)}
@@ -510,7 +504,7 @@ export function InterconnectionGraph({ project, visibleIds, onOpenMolecule }: In
                     {node.children.map((child) => (
                       <line
                         key={`child-connector:${child.instanceId}`}
-                        stroke="#96abac"
+                        stroke="#a8b8c5"
                         strokeLinecap="round"
                         strokeWidth="3"
                         x1={child.x + NODE_WIDTH / 2}
@@ -545,7 +539,7 @@ export function InterconnectionGraph({ project, visibleIds, onOpenMolecule }: In
                 >
                   <rect
                     fill={node.kind === "ingredient" ? "#fbfcfc" : "#ffffff"}
-                    filter="drop-shadow(0 18px 24px rgba(18,34,35,0.08))"
+                    filter="drop-shadow(0 10px 18px rgba(16,36,58,0.08))"
                     height={NODE_HEIGHT}
                     rx={CARD_RADIUS}
                     stroke={getStatusStroke(status)}
@@ -601,8 +595,8 @@ export function InterconnectionGraph({ project, visibleIds, onOpenMolecule }: In
           </svg>
         </div>
       ) : (
-        <div className="mt-5 rounded-2xl border border-dashed border-mist bg-lab px-4 py-8 text-sm text-slate">
-          No molecule graph yet.
+        <div className="mt-5 rounded-lg border border-dashed border-mist bg-lab px-4 py-8 text-sm text-slate">
+          No graph yet. Add an activity first.
         </div>
       )}
     </section>

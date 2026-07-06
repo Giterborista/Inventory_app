@@ -563,12 +563,12 @@ function DocumentationBlock({ molecule }: { molecule: MoleculeRecord }) {
 
       <View style={styles.paragraphBlock}>
         <Text style={styles.paragraphLabel}>Rationale for decisions</Text>
-        <Text style={styles.paragraphValue}>Not recorded in the current workspace model.</Text>
+        <Text style={styles.paragraphValue}>Not recorded in the current object inventory.</Text>
       </View>
 
       <View style={styles.paragraphBlock}>
         <Text style={styles.paragraphLabel}>Reviewer notes</Text>
-        <Text style={styles.paragraphValue}>Not recorded in the current workspace model.</Text>
+        <Text style={styles.paragraphValue}>Not recorded in the current object inventory.</Text>
       </View>
 
       <View style={styles.paragraphBlock}>
@@ -638,7 +638,7 @@ export function MoleculeReportPdfDocument({
           <Text style={styles.eyebrow}>Molecule reconstruction report</Text>
           <Text style={styles.reportTitle}>{molecule.name}</Text>
           <Text style={styles.reportSubtitle}>
-            Structured molecule report generated directly from the current workspace data. Every field shown below is
+            Structured molecule report generated directly from the current object inventory data. Every field shown below is
             drawn from the stored molecule, hierarchy, row, documentation, and evidence records.
           </Text>
           <View style={styles.metaGrid}>
@@ -722,7 +722,7 @@ export function MoleculeReportPdfDocument({
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>4. Unified documentation</Text>
           <Text style={styles.sectionIntro}>
-            One continuous documentation block pulled from the molecule workspace without adding unstored interpretation.
+            One continuous documentation block pulled from the object inventory without adding unstored interpretation.
           </Text>
           <DocumentationBlock molecule={molecule} />
         </View>

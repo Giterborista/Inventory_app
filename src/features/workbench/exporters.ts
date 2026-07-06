@@ -11,6 +11,7 @@ import {
 } from "@/features/workbench/selectors";
 import { normalizeProjectRecord } from "@/features/workbench/state-utils";
 import type { MoleculeRecord, ProjectRecord, ReconstructionRow } from "@/features/workbench/types";
+import type { SupportiveInformationFile } from "@/features/workbench/pdf/project-dossier-pdf";
 
 function safeText(value: unknown) {
   if (value === null || value === undefined) {
@@ -67,6 +68,163 @@ export async function buildMoleculePdfExport(
     fileName,
     mimeType: "application/pdf",
     content,
+  };
+}
+
+function isPdfFile(file: File) {
+  return file.name.toLowerCase().endsWith(".pdf") || file.type === "application/pdf";
+}
+
+function supportiveFileInfo(file: File): SupportiveInformationFile {
+  return {
+    name: file.name,
+    size: file.size,
+    type: file.type || "Unknown type",
+    mergeStatus: "merged-pdf",
+  };
+}
+
+function sanitizeWinAnsiText(value: string) {
+  return value
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[≈≃≅∼]/g, "~")
+    .replace(/[≤]/g, "<=")
+    .replace(/[≥]/g, ">=")
+    .replace(/[≠]/g, "!=")
+    .replace(/[±]/g, "+/-")
+    .replace(/[×]/g, "x")
+    .replace(/[÷]/g, "/")
+    .replace(/[−–—]/g, "-")
+    .replace(/[“”„]/g, '"')
+    .replace(/[‘’‚]/g, "'")
+    .replace(/[→➔⇒]/g, "->")
+    .replace(/[←⇐]/g, "<-")
+    .replace(/[↔⇔]/g, "<->")
+    .replace(/[°]/g, " deg ")
+    .replace(/[µμ]/g, "u")
+    .replace(/[αΑ]/g, "alpha")
+    .replace(/[βΒ]/g, "beta")
+    .replace(/[γΓ]/g, "gamma")
+    .replace(/[δΔ]/g, "delta")
+    .replace(/[εΕ]/g, "epsilon")
+    .replace(/[λΛ]/g, "lambda")
+    .replace(/[πΠ]/g, "pi")
+    .replace(/[σΣ]/g, "sigma")
+    .replace(/[Ωω]/g, "omega")
+    .replace(/[₀]/g, "0")
+    .replace(/[₁]/g, "1")
+    .replace(/[₂]/g, "2")
+    .replace(/[₃]/g, "3")
+    .replace(/[₄]/g, "4")
+    .replace(/[₅]/g, "5")
+    .replace(/[₆]/g, "6")
+    .replace(/[₇]/g, "7")
+    .replace(/[₈]/g, "8")
+    .replace(/[₉]/g, "9")
+    .replace(/[⁰]/g, "0")
+    .replace(/[¹]/g, "1")
+    .replace(/[²]/g, "2")
+    .replace(/[³]/g, "3")
+    .replace(/[⁴]/g, "4")
+    .replace(/[⁵]/g, "5")
+    .replace(/[⁶]/g, "6")
+    .replace(/[⁷]/g, "7")
+    .replace(/[⁸]/g, "8")
+    .replace(/[⁹]/g, "9")
+    .replace(/[^\x09\x0A\x0D\x20-\x7E\xA0-\xFF]/g, " ");
+}
+
+export async function buildProjectPdfExport(project: ProjectRecord, exportedAt: string, supportiveFiles: File[] = []) {
+  const [{ pdf }, { PDFDocument, StandardFonts, rgb }, { createProjectDossierPdfElement }] = await Promise.all([
+    import("@react-pdf/renderer"),
+    import("pdf-lib"),
+    import("@/features/workbench/pdf/project-dossier-pdf"),
+  ]);
+
+  const fileName = `${workbookName(project.name)}_minimum-project-dossier.pdf`;
+  const pdfAttachments = supportiveFiles.filter(isPdfFile);
+  const supportiveFileSummaries = pdfAttachments.map(supportiveFileInfo);
+  const document = pdf(createProjectDossierPdfElement({ exportedAt, project, supportiveFiles: supportiveFileSummaries }));
+  const content = await document.toBlob();
+  const pdfDocument = await PDFDocument.load(await content.arrayBuffer());
+  const footerFont = await pdfDocument.embedFont(StandardFonts.TimesRoman);
+  const titleFont = await pdfDocument.embedFont(StandardFonts.TimesRomanBold);
+  const stampablePages = [...pdfDocument.getPages()];
+
+  for (const file of pdfAttachments) {
+    try {
+      const separatorPage = pdfDocument.addPage([595.28, 841.89]);
+      stampablePages.push(separatorPage);
+      separatorPage.drawText("Supporting information", {
+        x: 54,
+        y: 720,
+        size: 22,
+        font: titleFont,
+        color: rgb(0.05, 0.05, 0.05),
+      });
+      separatorPage.drawText("Attached document", {
+        x: 54,
+        y: 682,
+        size: 11,
+        font: footerFont,
+        color: rgb(0.25, 0.25, 0.25),
+      });
+      separatorPage.drawText(sanitizeWinAnsiText(file.name), {
+        x: 54,
+        y: 650,
+        size: 14,
+        font: titleFont,
+        color: rgb(0.05, 0.05, 0.05),
+      });
+      separatorPage.drawText("The following pages are the uploaded PDF as provided by the user.", {
+        x: 54,
+        y: 616,
+        size: 10,
+        font: footerFont,
+        color: rgb(0.25, 0.25, 0.25),
+      });
+
+      const attachmentDocument = await PDFDocument.load(await file.arrayBuffer());
+      const copiedPages = await pdfDocument.copyPages(attachmentDocument, attachmentDocument.getPageIndices());
+      copiedPages.forEach((page) => pdfDocument.addPage(page));
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : "Unsupported or corrupted PDF.";
+      throw new Error(`Could not merge supportive PDF "${file.name}": ${reason}`);
+    }
+  }
+
+  const pages = pdfDocument.getPages();
+  const fontSize = 8;
+
+  stampablePages.forEach((page) => {
+    const pageIndex = pages.indexOf(page);
+    if (pageIndex < 0) {
+      return;
+    }
+
+    const label = `${pageIndex + 1}/${pages.length}`;
+    const labelWidth = footerFont.widthOfTextAtSize(label, fontSize);
+    page.drawText(label, {
+      x: page.getWidth() - 34 - labelWidth,
+      y: 16,
+      size: fontSize,
+      font: footerFont,
+      color: rgb(0.2, 0.2, 0.2),
+    });
+  });
+
+  const numberedPdf = await pdfDocument.save();
+  const numberedPdfBytes = new Uint8Array(numberedPdf);
+  const numberedPdfBuffer = numberedPdfBytes.buffer.slice(
+    numberedPdfBytes.byteOffset,
+    numberedPdfBytes.byteOffset + numberedPdfBytes.byteLength,
+  );
+
+  return {
+    fileName,
+    mimeType: "application/pdf",
+    content: new Blob([numberedPdfBuffer], { type: "application/pdf" }),
   };
 }
 
@@ -407,7 +565,7 @@ export function buildProjectHtmlReportExport(project: ProjectRecord, exportedAt:
       <section class="section">
         <div class="eyebrow">Section 1</div>
         <h2>Project overview</h2>
-        <p class="section-intro">This overview summarizes the current project state without adding interpretation beyond what is already recorded in the molecule workspaces and hierarchy links.</p>
+        <p class="section-intro">This overview summarizes the current project state without adding interpretation beyond what is already recorded in the object inventories and hierarchy links.</p>
         <div class="detail-grid">
           <div class="detail-card"><strong>Project name</strong><div>${escapeHtml(project.name)}</div></div>
           <div class="detail-card"><strong>Generated</strong><div>${escapeHtml(formatExportDate(exportedAt))}</div></div>

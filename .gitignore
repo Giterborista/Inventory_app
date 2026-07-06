@@ -25,6 +25,11 @@ coverage
 .venv
 tsconfig.tsbuildinfo
 __pycache__/
+.playwright-mcp/
+Proxy_JSON_Troubleshooting/
+OpenLCA/
+outputs/
+tmp/
 *.py[cod]
 backend/db.sqlite3
 backend/staticfiles/

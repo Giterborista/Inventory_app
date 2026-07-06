@@ -57,7 +57,7 @@ export function TraceabilityPanel({
           <div className="section-title">Traceability</div>
           <h2 className="mt-3 text-[1.75rem] font-semibold text-ink">Traceability summary</h2>
           <p className="mt-2 max-w-4xl text-sm leading-6 text-slate">
-            Keep the parent/child hierarchy, project context, reuse, and review state visible without fragmenting the workspace.
+            Keep the parent/child hierarchy, project context, reuse, and review state visible without fragmenting the object inventory.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">

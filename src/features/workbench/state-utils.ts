@@ -126,8 +126,8 @@ function normalizeRawResolutionStatus(status: ResolutionStatus, rawValue: unknow
   const rawText = safeText(rawValue).trim();
   const normalizedRaw = normalizeText(rawText);
 
-  if (!normalizedRaw || normalizedRaw === "unchecked" || normalizedRaw === "not added yet") {
-    return status === "unchecked" ? "In progress" : rawText;
+  if (!normalizedRaw || normalizedRaw === "unchecked" || normalizedRaw === "not added yet" || normalizedRaw === "in progress") {
+    return status === "unchecked" ? "Not checked" : rawText;
   }
 
   return rawText;
@@ -202,6 +202,7 @@ export function createBlankRow(
     id: row.id ?? makeClientId("row"),
     section: row.section ?? section,
     order: row.order ?? order,
+    objectKind: row.objectKind === "molecule" ? "molecule" : "generic_object",
     name: safeText(row.name),
     synonyms: safeStringList(row.synonyms),
     ro: safeText(row.ro),
@@ -218,7 +219,12 @@ export function createBlankRow(
     smiles: safeText(row.smiles),
     ecoinventStatus: row.ecoinventStatus ?? "unchecked",
     rawEcoinventStatus: normalizeRawResolutionStatus(row.ecoinventStatus ?? "unchecked", row.rawEcoinventStatus),
+    ecoinventDatasetId: safeText(row.ecoinventDatasetId),
+    ecoinventDatasetUuid: safeText(row.ecoinventDatasetUuid),
+    ecoinventGeography: safeText(row.ecoinventGeography),
     ecoinventName: safeText(row.ecoinventName),
+    ecoinventReferenceProduct: safeText(row.ecoinventReferenceProduct),
+    ecoinventUnit: safeText(row.ecoinventUnit),
     notes: safeText(row.notes),
     relevant: safeText(row.relevant),
     formula: safeText(row.formula),
@@ -306,10 +312,14 @@ export function inferReviewStatus(
 export function createMoleculeFromDraft(draft: MoleculeDraft, importSessionId: string): MoleculeRecord {
   const timestamp = nowIso();
   const documentation = createEmptyDocumentation();
+  const referenceProductName = safeText(draft.referenceProductName || draft.name, "Untitled activity").trim();
 
   return {
     id: makeClientId("molecule"),
-    name: draft.name || "Untitled molecule",
+    activityType: draft.activityType ?? "production",
+    referenceProductName,
+    objectKind: draft.objectKind ?? "molecule",
+    name: referenceProductName,
     cas: normalizeCas(draft.cas),
     iupac: draft.iupac.trim(),
     smiles: safeText(draft.smiles).trim(),
@@ -318,20 +328,29 @@ export function createMoleculeFromDraft(draft: MoleculeDraft, importSessionId: s
     notes: draft.notes,
     ecoinventStatus: draft.ecoinventStatus,
     rawEcoinventStatus: draft.ecoinventStatus,
-    ecoinventCheck: createEmptyEcoinventCheck(),
+    ecoinventCheck: draft.ecoinventCheck ?? createEmptyEcoinventCheck(),
     reviewStatus: inferReviewStatus(draft.ecoinventStatus, documentation, false),
     placeholder: false,
     needsReview: draft.ecoinventStatus !== "present",
     topLevel: draft.topLevel,
     rootOrder: 0,
-    scaleReferenceAmount: "1",
+    scaleReferenceAmount: "",
     scaleTargetAmount: "1",
     scaleUnit: "kg",
     sourceWorkbook: "Manual entry",
     sourceSheet: "",
     importSessionId,
     pubchemMatch: draft.pubchemMatch ?? null,
-    rows: [],
+    rows: [
+      createBlankRow("OUTPUT", 1, {
+        objectKind: "generic_object",
+        name: referenceProductName,
+        unit: "",
+        scaledUnit: "",
+        ecoinventStatus: "unchecked",
+        rawEcoinventStatus: "Not checked",
+      }),
+    ],
     documentation,
     evidence: [],
     exports: [],
@@ -399,10 +418,22 @@ function normalizeMoleculeRecord(molecule: PartialMoleculeRecord): MoleculeRecor
     rootOrder?: number;
   };
 
+  const referenceProductName = safeText(
+    (molecule as PartialMoleculeRecord & { referenceProductName?: string }).referenceProductName || molecule.name,
+    "Untitled activity",
+  );
+  const activityType = safeText(
+    (molecule as PartialMoleculeRecord & { activityType?: string }).activityType,
+    "Production of",
+  );
+
   return {
     ...(molecule as MoleculeRecord),
     id: molecule.id ?? makeClientId("molecule"),
-    name: safeText(molecule.name, "Untitled molecule"),
+    activityType,
+    referenceProductName,
+    objectKind: molecule.objectKind === "generic_object" ? "generic_object" : "molecule",
+    name: safeText(molecule.name || referenceProductName, "Untitled activity"),
     cas: safeText(molecule.cas),
     iupac: safeText(molecule.iupac),
     smiles: safeText(molecule.smiles),

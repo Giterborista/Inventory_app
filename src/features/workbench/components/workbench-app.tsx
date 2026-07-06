@@ -2,49 +2,35 @@
 
 import { useEffect, useState } from "react";
 
-import {
-  ChildDependencyDialog,
-  type ChildDependencyRowDraft,
-  type ChildDependencySubmission,
-} from "@/features/workbench/components/child-dependency-dialog";
 import { CreateMoleculeDialog } from "@/features/workbench/components/create-molecule-dialog";
 import { Dashboard } from "@/features/workbench/components/dashboard";
-import { MoleculeWorkspace } from "@/features/workbench/components/molecule-workspace";
+import { ObjectInventory } from "@/features/workbench/components/object-inventory";
+import { SupportiveInformationDialog } from "@/features/workbench/components/supportive-information-dialog";
 import {
-  addManualParentLink,
   applyPasDefaults,
-  addEvidenceRecord,
-  createChildDependency,
+  addManualParentLink,
   createMolecule,
   deleteMolecule,
   deleteReconstructionRow,
+  ensureLinkedObjectReferenceOutput,
+  ensureLinkedObjectReferenceOutputs,
   importMoleculeSubtree,
-  linkExistingChildDependency,
-  moveChildMolecule,
-  moveRootMolecule,
-  moveReconstructionRow,
-  recordExport,
-  removeManualParentLink,
   rescaleMoleculeRows,
   saveReconstructionRow,
   selectMolecule,
-  setMoleculeTopLevel,
   updateProjectName,
-  updateEcoinventCheck,
   updateDocumentation,
   updateMoleculeField,
 } from "@/features/workbench/operations";
 import {
-  buildMoleculePdfExport,
-  buildProjectHtmlReportExport,
+  buildProjectPdfExport,
   buildProjectJsonExport,
   downloadBrowserFile,
   loadProjectJsonFile,
-  openPrintReport,
 } from "@/features/workbench/exporters";
 import { getHierarchySearchMatches, getMoleculeById, getUnresolvedMolecules } from "@/features/workbench/selectors";
-import { createEmptyWorkbenchState, makeClientId, nowIso } from "@/features/workbench/state-utils";
-import type { MoleculeDraft, ReconstructionRow, WorkbenchState } from "@/features/workbench/types";
+import { createEmptyWorkbenchState, nowIso } from "@/features/workbench/state-utils";
+import type { MoleculeDraft, ReconstructionSection, WorkbenchState } from "@/features/workbench/types";
 
 type SessionState = "clean" | "dirty" | "opened" | "saved";
 type UndoState = {
@@ -57,17 +43,15 @@ export function WorkbenchApp() {
   const [searchQuery, setSearchQuery] = useState("");
   const [sessionState, setSessionState] = useState<SessionState>("clean");
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
-  const [createDialogTitle, setCreateDialogTitle] = useState("Create molecule");
-  const [createDialogDescription, setCreateDialogDescription] = useState(
-    "Create a molecule workbook directly in the browser and continue in its workspace.",
-  );
-  const [createDialogSubmitLabel, setCreateDialogSubmitLabel] = useState("Open workspace");
+  const [createDialogTitle, setCreateDialogTitle] = useState("Create activity");
+  const [createDialogDescription, setCreateDialogDescription] = useState("");
+  const [createDialogSubmitLabel, setCreateDialogSubmitLabel] = useState("Create activity");
   const [createDialogInitialValues, setCreateDialogInitialValues] = useState<Partial<MoleculeDraft>>({});
-  const [pendingChildRowId, setPendingChildRowId] = useState<string | null>(null);
   const [pendingParentChildId, setPendingParentChildId] = useState<string | null>(null);
-  const [cascadeParentMoleculeId, setCascadeParentMoleculeId] = useState<string | null>(null);
+  const [autoOpenRowEditorSection, setAutoOpenRowEditorSection] = useState<ReconstructionSection | null>(null);
   const [undoState, setUndoState] = useState<UndoState>(null);
-  const [isExportingPdf, setIsExportingPdf] = useState(false);
+  const [isExportingProjectPdf, setIsExportingProjectPdf] = useState(false);
+  const [supportiveInformationDialogOpen, setSupportiveInformationDialogOpen] = useState(false);
 
   useEffect(() => {
     if (sessionState !== "dirty") {
@@ -122,32 +106,37 @@ export function WorkbenchApp() {
   const unresolvedMolecules = getUnresolvedMolecules(state.project);
 
   const openMolecule = (moleculeId: string) => {
-    applyStateChange((current) => selectMolecule(current, moleculeId), { markDirty: false });
+    setAutoOpenRowEditorSection(null);
+    applyStateChange((current) => selectMolecule(ensureLinkedObjectReferenceOutputs(current), moleculeId), {
+      markDirty: false,
+    });
   };
 
-  const openCreateDialog = (initialValues?: Partial<MoleculeDraft>, rowId?: string) => {
-    const childMode = Boolean(rowId);
-    setCreateDialogTitle(childMode ? "Create child molecule" : "Create molecule");
-    setCreateDialogDescription(
-      childMode
-        ? "Create and link a child molecule placeholder without leaving the current workspace."
-        : "Create a new molecule workbook in the current JSON session and open its workspace.",
-    );
-    setCreateDialogSubmitLabel(childMode ? "Create and link" : "Open workspace");
-    setCreateDialogInitialValues(childMode ? { topLevel: false, ...(initialValues ?? {}) } : (initialValues ?? {}));
-    setPendingChildRowId(rowId ?? null);
+  const openInputRowEditorForMolecule = (moleculeId: string) => {
+    setAutoOpenRowEditorSection("INPUT");
+    applyStateChange((current) => selectMolecule(ensureLinkedObjectReferenceOutputs(current), moleculeId), {
+      markDirty: false,
+    });
+  };
+
+  const closeObjectInventory = () => {
+    applyStateChange((current) => selectMolecule(current, null), { markDirty: false });
+  };
+
+  const openCreateDialog = (initialValues?: Partial<MoleculeDraft>) => {
+    setCreateDialogTitle("Create activity");
+    setCreateDialogDescription("");
+    setCreateDialogSubmitLabel("Create activity");
+    setCreateDialogInitialValues(initialValues ?? {});
     setPendingParentChildId(null);
     setCreateDialogOpen(true);
   };
 
   const openCreateParentDialog = (childMoleculeId: string) => {
-    setCreateDialogTitle("Create parent molecule");
-    setCreateDialogDescription(
-      "Create a new parent molecule and link the current molecule beneath it so the main process chain stays explicit in the hierarchy.",
-    );
-    setCreateDialogSubmitLabel("Create parent");
+    setCreateDialogTitle("Create parent activity");
+    setCreateDialogDescription("");
+    setCreateDialogSubmitLabel("Create activity");
     setCreateDialogInitialValues({ topLevel: true });
-    setPendingChildRowId(null);
     setPendingParentChildId(childMoleculeId);
     setCreateDialogOpen(true);
   };
@@ -155,9 +144,6 @@ export function WorkbenchApp() {
   const handleImportSubtree = async (
     file: File,
     options?: {
-      parentMoleculeId?: string;
-      sourceRowId?: string;
-      rowValues?: ChildDependencyRowDraft;
       replaceMoleculeId?: string;
       navigateToImported?: boolean;
     },
@@ -166,16 +152,11 @@ export function WorkbenchApp() {
       const importedState = await loadProjectJsonFile(file);
       applyStateChange((current) =>
         importMoleculeSubtree(current, importedState, {
-          parentMoleculeId: options?.parentMoleculeId,
-          sourceRowId: options?.sourceRowId,
-          rowValues: options?.rowValues,
           replaceMoleculeId: options?.replaceMoleculeId,
           navigateToImported: options?.navigateToImported,
         }),
       );
-      setCascadeParentMoleculeId(null);
       setCreateDialogOpen(false);
-      setPendingChildRowId(null);
       setPendingParentChildId(null);
     } catch (error) {
       const message =
@@ -184,45 +165,35 @@ export function WorkbenchApp() {
     }
   };
 
-  const handleCascadeChildSubmit = async (payload: ChildDependencySubmission) => {
-    if (payload.mode === "import") {
-      await handleImportSubtree(payload.file, {
-        parentMoleculeId: payload.parentMoleculeId,
-        rowValues: payload.row,
-      });
-      return;
-    }
-
-    applyStateChange((current) => {
-      if (payload.mode === "existing") {
-        return linkExistingChildDependency(
-          current,
-          payload.parentMoleculeId,
-          payload.childMoleculeId,
-          payload.row,
-        );
-      }
-
-      return createChildDependency(current, payload.parentMoleculeId, payload.molecule, payload.row);
-    });
-
-    setCascadeParentMoleculeId(null);
-  };
-
   const handleCreateMolecule = (draft: MoleculeDraft) => {
     applyStateChange((current) =>
       createMolecule(current, draft, {
-        parentMoleculeId: pendingChildRowId ? current.selectedMoleculeId ?? undefined : undefined,
-        sourceRowId: pendingChildRowId ?? undefined,
         childMoleculeId: pendingParentChildId ?? undefined,
-        navigateToNew: pendingChildRowId ? false : true,
+        navigateToNew: true,
       }),
     );
 
     setCreateDialogOpen(false);
-    setPendingChildRowId(null);
     setPendingParentChildId(null);
   };
+
+  const completeMoleculeDraft = (draft: Partial<MoleculeDraft>): MoleculeDraft => ({
+    activityType: draft.activityType?.trim() || "Production of",
+    referenceProductName: (draft.referenceProductName || draft.name)?.trim() || "Untitled activity",
+    objectKind: draft.objectKind ?? "generic_object",
+    name: (draft.referenceProductName || draft.name)?.trim() || "Untitled activity",
+    cas: draft.cas ?? "",
+    iupac: draft.iupac ?? "",
+    smiles: draft.smiles ?? "",
+    synonyms: draft.synonyms ?? "",
+    ecoinventAliases: draft.ecoinventAliases ?? "",
+    notes: draft.notes ?? "",
+    ecoinventStatus: draft.ecoinventStatus ?? "unchecked",
+    topLevel: draft.topLevel ?? false,
+    parentMoleculeId: draft.parentMoleculeId ?? "",
+    pubchemMatch: draft.pubchemMatch ?? null,
+    ecoinventCheck: draft.ecoinventCheck ?? null,
+  });
 
   const openProjectJson = async (file: File) => {
     if (!confirmDiscardUnsavedChanges()) {
@@ -230,7 +201,7 @@ export function WorkbenchApp() {
     }
 
     try {
-      const nextState = await loadProjectJsonFile(file);
+      const nextState = ensureLinkedObjectReferenceOutputs(await loadProjectJsonFile(file));
       replaceSessionState(nextState, "opened");
       setSearchQuery("");
     } catch (error) {
@@ -248,109 +219,37 @@ export function WorkbenchApp() {
     setSearchQuery("");
   };
 
-  const exportPdfReport = async () => {
-    if (!selectedMolecule) {
-      return;
-    }
-
-    setIsExportingPdf(true);
+  const openProjectDossier = async (supportiveFiles: File[] = []) => {
+    setIsExportingProjectPdf(true);
     try {
-      const nextVersion = (selectedMolecule.exports.at(-1)?.version ?? 0) + 1;
       const exportedAt = nowIso();
-      const report = await buildMoleculePdfExport(state.project, selectedMolecule, nextVersion, exportedAt);
+      const report = await buildProjectPdfExport(state.project, exportedAt, supportiveFiles);
       downloadBrowserFile(report.fileName, report.mimeType, report.content);
-
-      applyStateChange(
-        (current) =>
-          recordExport(current, selectedMolecule.id, {
-            id: makeClientId("export"),
-            version: nextVersion,
-            exportedAt,
-            format: "pdf",
-            fileName: report.fileName,
-          }),
-        { markDirty: true },
-      );
+      setSupportiveInformationDialogOpen(false);
     } catch (error) {
       const message =
-        error instanceof Error ? error.message : "The PDF report could not be generated for this molecule.";
+        error instanceof Error ? error.message : "The minimum project dossier PDF could not be generated.";
       window.alert(message);
     } finally {
-      setIsExportingPdf(false);
+      setIsExportingProjectPdf(false);
     }
-  };
-
-  const openProjectDossier = () => {
-    const exportedAt = nowIso();
-    const report = buildProjectHtmlReportExport(state.project, exportedAt);
-    const opened = openPrintReport(report.content, report.fileName);
-    if (!opened) {
-      downloadBrowserFile(report.fileName, report.mimeType, report.content);
-    }
-  };
-
-  const saveMessage =
-    sessionState === "dirty"
-      ? "Session only • unsaved changes"
-      : sessionState === "saved"
-        ? "Session only • JSON saved"
-        : sessionState === "opened"
-          ? "Session only • JSON opened"
-          : "Session only • no browser storage";
-
-  const addExtractedRow = (
-    moleculeId: string,
-    section: "INPUT" | "OUTPUT",
-    values: Partial<ReconstructionRow>,
-    evidence?: {
-      citation: string;
-      summary: string;
-    },
-  ) => {
-    applyStateChange((current) => {
-      const rowId = values.id ?? makeClientId("row");
-      let nextState = saveReconstructionRow(current, moleculeId, section, { ...values, id: rowId });
-
-      if (evidence) {
-        nextState = addEvidenceRecord(nextState, moleculeId, {
-          rowId,
-          citation: evidence.citation,
-          type: "patent",
-          strength: "moderate",
-          summary: evidence.summary,
-          identifier: "",
-          locator: "",
-          url: "",
-          isPrimary: false,
-          sourceWorkbook: "Patent assistant",
-          sourceSheet: "Pasted text",
-          sourceRowNumber: null,
-        });
-      }
-
-      return nextState;
-    });
   };
 
   return (
     <>
       {selectedMolecule ? (
-        <MoleculeWorkspace
+        <ObjectInventory
           molecule={selectedMolecule}
-          onAddManualParent={(parentMoleculeId) =>
-            applyStateChange((current) => addManualParentLink(current, selectedMolecule.id, parentMoleculeId))
-          }
-          onCreateParentMolecule={() => openCreateParentDialog(selectedMolecule.id)}
-          onBack={() =>
-            applyStateChange((current) => selectMolecule(current, null), { markDirty: false })
-          }
+          autoOpenRowEditor={autoOpenRowEditorSection}
+          onAutoOpenRowEditorHandled={() => setAutoOpenRowEditorSection(null)}
+          onBack={closeObjectInventory}
           onDelete={() => {
             if (!window.confirm(`Delete ${selectedMolecule.name}? This will unlink it from any parent rows.`)) {
               return;
             }
             applyStateChange((current) => {
               setUndoState({
-                label: `Deleted molecule ${selectedMolecule.name}`,
+                label: `Deleted activity ${selectedMolecule.name}`,
                 state: current,
               });
               return deleteMolecule(current, selectedMolecule.id);
@@ -366,73 +265,55 @@ export function WorkbenchApp() {
               return deleteReconstructionRow(current, selectedMolecule.id, rowId);
             })
           }
-          onAddExtractedRow={(section, values, evidence) =>
-            addExtractedRow(selectedMolecule.id, section, values, evidence)
-          }
           onCreateChildFromRow={(rowId, _values, draft) => {
-            openCreateDialog(
-              {
-                topLevel: false,
-                ...draft,
-              },
-              rowId,
+            applyStateChange((current) =>
+              createMolecule(current, completeMoleculeDraft({ topLevel: false, ...draft }), {
+                parentMoleculeId: selectedMolecule.id,
+                sourceRowId: rowId,
+                navigateToNew: false,
+              }),
             );
           }}
           onApplyPasDefaults={(profile) =>
             applyStateChange((current) => applyPasDefaults(current, selectedMolecule.id, profile))
           }
-          onMoveChild={(childMoleculeId, direction) =>
-            applyStateChange((current) => moveChildMolecule(current, selectedMolecule.id, childMoleculeId, direction))
-          }
-          onMoveRoot={(direction) =>
-            applyStateChange((current) => moveRootMolecule(current, selectedMolecule.id, direction))
-          }
-          onMoveRow={(rowId, direction) =>
-            applyStateChange((current) => moveReconstructionRow(current, selectedMolecule.id, rowId, direction))
-          }
-          isExportingPdf={isExportingPdf}
-          onExportPdfReport={exportPdfReport}
-          onImportMoleculeJson={(file) =>
-            void handleImportSubtree(file, {
-              replaceMoleculeId: selectedMolecule.id,
-            })
-          }
           onOpenMolecule={openMolecule}
-          onRemoveManualParent={(parentMoleculeId) =>
-            applyStateChange((current) => removeManualParentLink(current, selectedMolecule.id, parentMoleculeId))
-          }
           onRescaleRows={() =>
             applyStateChange((current) => rescaleMoleculeRows(current, selectedMolecule.id))
           }
           onSaveProjectJson={downloadProjectJson}
           onSaveRow={(section, values, rowId) =>
-            applyStateChange((current) => saveReconstructionRow(current, selectedMolecule.id, section, values, rowId))
+            applyStateChange((current) => {
+              const nextState = saveReconstructionRow(current, selectedMolecule.id, section, values, rowId);
+              if (section === "INPUT" && values.linkedMoleculeId) {
+                const linkedState = addManualParentLink(nextState, values.linkedMoleculeId, selectedMolecule.id);
+                const savedRowId = rowId ?? values.id;
+                return savedRowId
+                  ? ensureLinkedObjectReferenceOutput(linkedState, selectedMolecule.id, savedRowId)
+                  : linkedState;
+              }
+              return nextState;
+            })
           }
           onUpdateDocumentation={(field, value) =>
             applyStateChange((current) => updateDocumentation(current, selectedMolecule.id, field, value))
           }
-          onUpdateEcoinventCheck={(patch) =>
-            applyStateChange((current) => updateEcoinventCheck(current, selectedMolecule.id, patch))
-          }
           onUpdateMoleculeField={(field, value) =>
             applyStateChange((current) => updateMoleculeField(current, selectedMolecule.id, field, value))
           }
-          onUpdateTopLevel={(topLevel) =>
-            applyStateChange((current) => setMoleculeTopLevel(current, selectedMolecule.id, topLevel))
-          }
           project={state.project}
-          saveMessage={saveMessage}
         />
       ) : (
         <Dashboard
-          onAddChildDependency={setCascadeParentMoleculeId}
+          onAddInputRow={openInputRowEditorForMolecule}
           onCreateParentMolecule={openCreateParentDialog}
           filteredMolecules={filteredMolecules}
+          isExportingProjectPdf={isExportingProjectPdf}
           onCreateMolecule={() => openCreateDialog()}
           onNewProject={createNewProject}
           onOpenMolecule={openMolecule}
           onOpenProjectJson={(file) => void openProjectJson(file)}
-          onOpenProjectReport={openProjectDossier}
+          onOpenProjectReport={() => setSupportiveInformationDialogOpen(true)}
           onSaveProjectJson={downloadProjectJson}
           onUpdateProjectName={(value) =>
             applyStateChange((current) => updateProjectName(current, value))
@@ -444,34 +325,28 @@ export function WorkbenchApp() {
         />
       )}
 
-      <ChildDependencyDialog
-        onClose={() => setCascadeParentMoleculeId(null)}
-        onSubmit={handleCascadeChildSubmit}
-        open={Boolean(cascadeParentMoleculeId)}
-        parentMolecule={getMoleculeById(state.project, cascadeParentMoleculeId)}
-        project={state.project}
+      <SupportiveInformationDialog
+        isExporting={isExportingProjectPdf}
+        onClose={() => setSupportiveInformationDialogOpen(false)}
+        onSubmit={(files) => void openProjectDossier(files)}
+        open={supportiveInformationDialogOpen}
       />
 
       <CreateMoleculeDialog
         description={createDialogDescription}
-        hideParentSelection={Boolean(pendingChildRowId)}
         initialValues={createDialogInitialValues}
         onClose={() => {
           setCreateDialogOpen(false);
-          setPendingChildRowId(null);
           setPendingParentChildId(null);
         }}
         onImportJson={(file) =>
           void handleImportSubtree(file, {
-            parentMoleculeId: pendingChildRowId ? state.selectedMoleculeId ?? undefined : undefined,
-            sourceRowId: pendingChildRowId ?? undefined,
             replaceMoleculeId: pendingParentChildId ?? undefined,
-            navigateToImported: pendingChildRowId ? false : true,
+            navigateToImported: true,
           })
         }
         onSubmit={handleCreateMolecule}
         open={createDialogOpen}
-        project={state.project}
         showImportOption={!pendingParentChildId}
         submitLabel={createDialogSubmitLabel}
         title={createDialogTitle}

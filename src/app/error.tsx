@@ -11,7 +11,7 @@ export default function Error({
     <main className="flex min-h-screen items-center justify-center px-6 py-10">
       <div className="max-w-xl rounded-[2rem] border border-alert/20 bg-white px-8 py-10 text-center shadow-sm">
         <div className="section-title">Application error</div>
-        <h1 className="mt-4 text-3xl font-semibold text-ink">The workspace hit an unexpected problem.</h1>
+        <h1 className="mt-4 text-3xl font-semibold text-ink">The inventory builder hit an unexpected problem.</h1>
         <p className="mt-3 text-sm leading-6 text-slate">
           {error.message || "An unknown error occurred while rendering the application."}
         </p>

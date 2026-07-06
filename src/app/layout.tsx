@@ -4,8 +4,8 @@ import type { ReactNode } from "react";
 import "@/app/globals.css";
 
 export const metadata: Metadata = {
-  title: "Proxy Reconstruction Studio",
-  description: "Traceable proxy modelling workspace for molecules missing from ecoinvent in pharmaceutical LCA.",
+  title: "Inventory builder",
+  description: "Inventory builder for molecule and project JSON workflows.",
 };
 
 type RootLayoutProps = {

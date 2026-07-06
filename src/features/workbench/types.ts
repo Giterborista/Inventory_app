@@ -91,6 +91,7 @@ export type ReconstructionRow = {
   id: string;
   section: ReconstructionSection;
   order: number;
+  objectKind: ObjectKind;
   name: string;
   synonyms: string[];
   ro: string;
@@ -107,7 +108,12 @@ export type ReconstructionRow = {
   smiles: string;
   ecoinventStatus: ResolutionStatus;
   rawEcoinventStatus: string;
+  ecoinventDatasetId: string;
+  ecoinventDatasetUuid: string;
+  ecoinventGeography: string;
   ecoinventName: string;
+  ecoinventReferenceProduct: string;
+  ecoinventUnit: string;
   notes: string;
   relevant: string;
   formula: string;
@@ -170,8 +176,36 @@ export type EcoinventCheckRecord = {
   checkedAt: string;
 };
 
+export type EcoinventDatasetMatch = {
+  datasetId: string;
+  datasetUuid: string;
+  searchQuery: string;
+  activityName: string;
+  activityType: string;
+  referenceProduct: string;
+  geography: string;
+  unit: string;
+  sector: string;
+  exactName: string;
+  datasetUrl: string;
+  hasAccess: boolean;
+  generalComment: string;
+  productInformation: string;
+  includedActivitiesStart: string;
+  includedActivitiesEnd: string;
+  synonyms: string[];
+  version: string;
+  systemModel: string;
+};
+
+export type ObjectKind = "molecule" | "generic_object";
+export type ActivityType = string;
+
 export type MoleculeRecord = {
   id: string;
+  activityType: ActivityType;
+  referenceProductName: string;
+  objectKind: ObjectKind;
   name: string;
   cas: string;
   iupac: string;
@@ -220,6 +254,9 @@ export type WorkbenchState = {
 };
 
 export type MoleculeDraft = {
+  activityType: ActivityType;
+  referenceProductName: string;
+  objectKind: ObjectKind;
   name: string;
   cas: string;
   iupac: string;
@@ -231,6 +268,7 @@ export type MoleculeDraft = {
   topLevel: boolean;
   parentMoleculeId: string;
   pubchemMatch?: PubChemMatch | null;
+  ecoinventCheck?: EcoinventCheckRecord | null;
   openAfterSave?: boolean;
 };
 

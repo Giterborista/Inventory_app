@@ -17,6 +17,13 @@ export type MoleculeTraceability = {
   primaryEvidence: EvidenceRecord | null;
 };
 
+export type InventoryReviewState = "ok" | "warning" | "alert";
+
+export type InventoryReviewIssue = {
+  label: string;
+  state: Exclude<InventoryReviewState, "ok">;
+};
+
 export function getMoleculeById(project: ProjectRecord, moleculeId: string | null) {
   if (!moleculeId) {
     return null;
@@ -66,6 +73,78 @@ export function getLinkedMolecule(project: ProjectRecord, row: ReconstructionRow
   return project.molecules.find((molecule) => molecule.id === row.linkedMoleculeId) ?? null;
 }
 
+export function getReferenceProductRow(molecule: MoleculeRecord) {
+  const referenceProductName = molecule.referenceProductName || molecule.name;
+  return (
+    molecule.rows.find(
+      (row) =>
+        row.section === "OUTPUT" &&
+        row.order === 1 &&
+        row.name.trim() === referenceProductName.trim(),
+    ) ??
+    molecule.rows.find((row) => row.section === "OUTPUT") ??
+    null
+  );
+}
+
+export function hasReferenceOutput(molecule: MoleculeRecord | null) {
+  return Boolean(molecule && getReferenceProductRow(molecule));
+}
+
+export function isReferenceProductRow(molecule: MoleculeRecord, row: ReconstructionRow) {
+  const referenceProductName = molecule.referenceProductName || molecule.name;
+  return row.section === "OUTPUT" && row.order === 1 && row.name.trim() === referenceProductName.trim();
+}
+
+export function getRowInventoryReviewIssues(
+  project: ProjectRecord,
+  molecule: MoleculeRecord,
+  row: ReconstructionRow,
+): InventoryReviewIssue[] {
+  const linkedMolecule = getLinkedMolecule(project, row);
+  const referenceOutput = isReferenceProductRow(molecule, row);
+  const issues: InventoryReviewIssue[] = [];
+
+  if (!row.totalValue.trim() && !referenceOutput) {
+    issues.push({ label: "Missing amount", state: "warning" });
+  }
+
+  if (linkedMolecule && !hasReferenceOutput(linkedMolecule)) {
+    issues.push({ label: "Missing linked output", state: "alert" });
+  }
+
+  if (!referenceOutput && !linkedMolecule && row.ecoinventStatus === "missing") {
+    issues.push({ label: "Disconnected item", state: "alert" });
+  }
+
+  if (
+    !referenceOutput &&
+    !linkedMolecule &&
+    (row.ecoinventStatus === "unchecked" || row.ecoinventStatus === "in_progress")
+  ) {
+    issues.push({ label: "Needs check", state: "warning" });
+  }
+
+  return issues;
+}
+
+export function getMoleculeInventoryReviewState(
+  project: ProjectRecord,
+  molecule: MoleculeRecord,
+): InventoryReviewState {
+  const issues = molecule.rows.flatMap((row) => getRowInventoryReviewIssues(project, molecule, row));
+
+  if (!hasReferenceOutput(molecule)) {
+    issues.push({ label: "Missing reference output", state: "alert" });
+  }
+
+  if (issues.some((issue) => issue.state === "alert")) {
+    return "alert";
+  }
+
+  return issues.length > 0 ? "warning" : "ok";
+}
+
 export function getIncomingLinkedRows(project: ProjectRecord, moleculeId: string) {
   return project.molecules.flatMap((candidate) =>
     candidate.rows.filter((row) => row.linkedMoleculeId === moleculeId),
@@ -109,7 +188,7 @@ export function getMoleculeTraceability(project: ProjectRecord, molecule: Molecu
   const children = getChildMolecules(project, molecule.id);
 
   const unresolvedChildren = children.filter(
-    (child) => child.placeholder || child.reviewStatus === "draft" || child.reviewStatus === "in_progress",
+    (child) => child.placeholder || getMoleculeInventoryReviewState(project, child) !== "ok",
   );
 
   const latestImportWarnings =
@@ -224,9 +303,8 @@ export function getHierarchyVisibleIds(project: ProjectRecord, filteredMolecules
 export function getUnresolvedMolecules(project: ProjectRecord) {
   return project.molecules.filter(
     (molecule) =>
-      getEffectiveResolutionStatus(project, molecule) !== "present" ||
+      getMoleculeInventoryReviewState(project, molecule) !== "ok" ||
       molecule.placeholder ||
-      molecule.needsReview ||
       getMoleculeTraceability(project, molecule).unresolvedChildren.length > 0,
   );
 }

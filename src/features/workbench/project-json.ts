@@ -125,6 +125,7 @@ function migrateRow(value: unknown): Partial<ReconstructionRow> {
     id: asString(record.id),
     section: (record.section === "OUTPUT" ? "OUTPUT" : "INPUT") as ReconstructionRow["section"],
     order: Number(record.order ?? 0) || 0,
+    objectKind: record.objectKind === "generic_object" ? "generic_object" : "molecule",
     name: asString(record.name),
     synonyms: asStringArray(record.synonyms),
     ro: asString(record.ro),
@@ -141,7 +142,12 @@ function migrateRow(value: unknown): Partial<ReconstructionRow> {
     smiles: asString(record.smiles),
     ecoinventStatus: migrateResolutionStatus(record.ecoinventStatus),
     rawEcoinventStatus: asString(record.rawEcoinventStatus),
+    ecoinventDatasetId: asString(record.ecoinventDatasetId),
+    ecoinventDatasetUuid: asString(record.ecoinventDatasetUuid),
+    ecoinventGeography: asString(record.ecoinventGeography),
     ecoinventName: asString(record.ecoinventName),
+    ecoinventReferenceProduct: asString(record.ecoinventReferenceProduct),
+    ecoinventUnit: asString(record.ecoinventUnit),
     notes: mergeLegacyText(record.notes, legacyStep, "Legacy step"),
     relevant: asString(record.relevant),
     formula: asString(record.formula),
@@ -231,10 +237,14 @@ function migrateImportSession(value: unknown): ImportSession {
 function migrateMolecule(value: unknown): Partial<MoleculeRecord> {
   const record = asRecord(value, "Molecule");
   const migratedDocumentation = migrateDocumentation(record.documentation);
+  const referenceProductName = asString(record.referenceProductName || record.name);
 
   return {
     id: asString(record.id),
-    name: asString(record.name),
+    activityType: asString(record.activityType || "Production of"),
+    referenceProductName,
+    objectKind: record.objectKind === "generic_object" ? "generic_object" : "molecule",
+    name: asString(record.name || referenceProductName),
     cas: asString(record.cas),
     iupac: asString(record.iupac),
     smiles: asString(record.smiles),
@@ -387,6 +397,9 @@ function stripProjectForExport(project: ProjectRecord): ProjectRecord {
     name: project.name,
     molecules: project.molecules.map((molecule) => ({
       id: molecule.id,
+      activityType: molecule.activityType,
+      referenceProductName: molecule.referenceProductName,
+      objectKind: molecule.objectKind,
       name: molecule.name,
       cas: molecule.cas,
       iupac: molecule.iupac,
@@ -417,6 +430,7 @@ function stripProjectForExport(project: ProjectRecord): ProjectRecord {
         id: row.id,
         section: row.section,
         order: row.order,
+        objectKind: row.objectKind,
         name: row.name,
         synonyms: [...row.synonyms],
         ro: row.ro,
@@ -433,7 +447,12 @@ function stripProjectForExport(project: ProjectRecord): ProjectRecord {
         smiles: row.smiles,
         ecoinventStatus: row.ecoinventStatus,
         rawEcoinventStatus: row.rawEcoinventStatus,
+        ecoinventDatasetId: row.ecoinventDatasetId,
+        ecoinventDatasetUuid: row.ecoinventDatasetUuid,
+        ecoinventGeography: row.ecoinventGeography,
         ecoinventName: row.ecoinventName,
+        ecoinventReferenceProduct: row.ecoinventReferenceProduct,
+        ecoinventUnit: row.ecoinventUnit,
         notes: row.notes,
         relevant: row.relevant,
         formula: row.formula,

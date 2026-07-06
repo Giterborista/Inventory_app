@@ -13,7 +13,7 @@ export default function GlobalError({
         <main className="flex min-h-screen items-center justify-center px-6 py-10">
           <div className="max-w-xl rounded-[2rem] border border-alert/20 bg-white px-8 py-10 text-center shadow-sm">
             <div className="section-title">Critical error</div>
-            <h1 className="mt-4 text-3xl font-semibold text-ink">The proxy workspace could not be loaded.</h1>
+            <h1 className="mt-4 text-3xl font-semibold text-ink">The inventory builder could not be loaded.</h1>
             <p className="mt-3 text-sm leading-6 text-slate">
               {error.message || "A critical rendering error occurred."}
             </p>
