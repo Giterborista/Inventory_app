@@ -1,11 +1,15 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import type { ReactNode } from "react";
 
 import "@/app/globals.css";
 
 export const metadata: Metadata = {
-  title: "Inventory builder",
-  description: "Inventory builder for molecule and project JSON workflows.",
+  title: "LCI Builder | Guided research inventory workspace",
+  description: "Guided life cycle inventory data collection for researchers without prior LCA expertise.",
+};
+
+export const viewport: Viewport = {
+  themeColor: "#07141d",
 };
 
 type RootLayoutProps = {

@@ -2,601 +2,627 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 
-import {
-  getEffectiveResolutionStatus,
-  getMoleculeRows,
-  getTopLevelMolecules,
-} from "@/features/workbench/selectors";
-import type { MoleculeRecord, ProjectRecord, ReconstructionRow } from "@/features/workbench/types";
+import type {
+  MoleculeRecord,
+  ProjectRecord,
+  ReconstructionRow,
+} from "@/features/workbench/types";
 
 type InterconnectionGraphProps = {
   project: ProjectRecord;
   visibleIds: Set<string> | null;
   onOpenMolecule: (moleculeId: string) => void;
+  showInputs: boolean;
 };
-
-type PreviewViewport = {
+type Viewport = { x: number; y: number; scale: number };
+type ActivityNode = {
+  activity: MoleculeRecord;
   x: number;
   y: number;
-  scale: number;
+  blockY: number;
+  blockHeight: number;
+  depth: number;
 };
-
-type TreeNode = {
-  instanceId: string;
-  sourceId: string;
-  kind: "molecule" | "ingredient";
-  label: string;
-  casOrMeta: string;
-  flagged: boolean;
-  molecule?: MoleculeRecord;
-  row?: ReconstructionRow;
-  children: TreeNode[];
-  subtreeWidth: number;
-  maxDepth: number;
+type FlowNode = {
+  row: ReconstructionRow;
+  ownerId: string;
   x: number;
   y: number;
+  input: boolean;
+};
+type LinkedEdge = {
+  id: string;
+  parentId: string;
+  childId: string;
+  row: ReconstructionRow | null;
+  targetY: number;
 };
 
-type TreeRoot = {
-  root: TreeNode;
-  height: number;
-};
-
-const NODE_WIDTH = 330;
-const NODE_HEIGHT = 110;
-const CARD_RADIUS = 8;
-const HORIZONTAL_GAP = 48;
-const LEVEL_GAP = 158;
-const ROOT_GAP = 84;
-const PADDING_X = 48;
-const PADDING_Y = 34;
-const PREVIEW_HEIGHT = 760;
-
-function getStatusStroke(status: MoleculeRecord["ecoinventStatus"] | ReconstructionRow["ecoinventStatus"]) {
-  if (status === "present" || status === "proxy_created") {
-    return "#2f7d67";
-  }
-  if (status === "in_progress" || status === "unchecked") {
-    return "#b08a28";
-  }
-  if (status === "missing") {
-    return "#b85c38";
-  }
-  return "#61737a";
-}
+const ACTIVITY_WIDTH = 290;
+const ACTIVITY_HEIGHT = 112;
+const FLOW_WIDTH = 235;
+const FLOW_HEIGHT = 64;
+const FLOW_GAP = 72;
+const FLOW_NODE_GAP = 10;
+const SUBTREE_GAP = 22;
+const LANE_PADDING = 16;
+const LINK_LABEL_WIDTH = 182;
+const STAGE_STEP =
+  ACTIVITY_WIDTH + FLOW_WIDTH + FLOW_GAP * 2 + LINK_LABEL_WIDTH + 24;
+const PADDING = 48;
+const PREVIEW_HEIGHT = 800;
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(Math.max(value, min), max);
 }
-
-function wrapLabel(value: string, maxLength = 30) {
-  const trimmed = value.trim();
-  if (trimmed.length <= maxLength) {
-    return [trimmed];
-  }
-
-  const words = trimmed.split(/\s+/);
+function compact(value: string, max = 29) {
+  const clean = value.trim() || "Untitled";
+  return clean.length > max ? `${clean.slice(0, max - 3).trimEnd()}...` : clean;
+}
+function wrapCompact(value: string, max = 31) {
+  const words = (value.trim() || "Untitled").split(/\s+/);
   const lines: string[] = [];
-  let current = "";
-
+  let truncated = false;
   for (const word of words) {
-    const segments = word.length > maxLength ? word.match(new RegExp(`.{1,${Math.max(8, maxLength - 2)}}`, "g")) ?? [word] : [word];
-
-    for (const segment of segments) {
-      const next = current ? `${current} ${segment}` : segment;
-      if (next.length <= maxLength || current.length === 0) {
-        current = next;
-        continue;
-      }
-
-      lines.push(current);
-      current = segment;
-      if (lines.length === 1) {
-        break;
-      }
-    }
-
-    if (lines.length === 2) {
+    const current = lines.at(-1) ?? "";
+    if (current && `${current} ${word}`.length <= max) {
+      lines[lines.length - 1] = `${current} ${word}`;
+    } else if (lines.length < 2) {
+      lines.push(word);
+    } else {
+      truncated = true;
       break;
     }
   }
-
-  if (current) {
-    lines.push(current);
-  }
-
-  return lines.slice(0, 2).map((line, index, array) => {
-    if (index === array.length - 1 && trimmed.length > array.join(" ").replace(/\.\.\.$/, "").length) {
-      return `${line.slice(0, Math.max(0, maxLength - 3)).replace(/[,\s-]+$/, "")}...`;
-    }
-    return line;
-  });
+  if (truncated && lines.length) lines[lines.length - 1] = `${lines[lines.length - 1].slice(0, max - 1).trimEnd()}…`;
+  return lines.slice(0, 2);
+}
+function activityTitle(activity: MoleculeRecord) {
+  return `${activity.activityType || "Production of"} ${activity.referenceProductName || activity.name}`.trim();
+}
+function flowAmount(row: ReconstructionRow) {
+  return `${row.totalValue || "Amount missing"}${row.unit ? ` ${row.unit}` : ""}`;
 }
 
-function measureNode(node: TreeNode): TreeNode {
-  const measuredChildren = node.children.map(measureNode);
-  const childrenWidth = measuredChildren.reduce((sum, child) => sum + child.subtreeWidth, 0);
-  const gapsWidth = measuredChildren.length > 1 ? (measuredChildren.length - 1) * HORIZONTAL_GAP : 0;
-
-  return {
-    ...node,
-    children: measuredChildren,
-    subtreeWidth: measuredChildren.length === 0 ? NODE_WIDTH : Math.max(NODE_WIDTH, childrenWidth + gapsWidth),
-    maxDepth: measuredChildren.length === 0 ? 0 : 1 + Math.max(...measuredChildren.map((child) => child.maxDepth)),
-  };
+function GraphButton({
+  label,
+  onClick,
+}: {
+  label: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      className="h-9 rounded-sm border border-mist px-3 text-xs font-semibold text-ink transition hover:bg-lab"
+      onClick={onClick}
+      type="button"
+    >
+      {label}
+    </button>
+  );
 }
 
-function positionNode(node: TreeNode, left: number, top: number): TreeNode {
-  const centeredX = left + (node.subtreeWidth - NODE_WIDTH) / 2;
-  if (node.children.length === 0) {
-    return { ...node, x: centeredX, y: top };
-  }
-
-  let cursor = left;
-  const positionedChildren = node.children.map((child) => {
-    const positioned = positionNode(child, cursor, top + LEVEL_GAP);
-    cursor += child.subtreeWidth + HORIZONTAL_GAP;
-    return positioned;
-  });
-
-  return {
-    ...node,
-    x: centeredX,
-    y: top,
-    children: positionedChildren,
-  };
-}
-
-function flattenNodes(node: TreeNode): TreeNode[] {
-  return [node, ...node.children.flatMap(flattenNodes)];
-}
-
-export function InterconnectionGraph({ project, visibleIds, onOpenMolecule }: InterconnectionGraphProps) {
-  const [showAllIngredients, setShowAllIngredients] = useState(false);
-  const [viewport, setViewport] = useState<PreviewViewport>({ x: 24, y: 24, scale: 1 });
-  const [isDragging, setIsDragging] = useState(false);
+export function InterconnectionGraph({
+  project,
+  visibleIds,
+  onOpenMolecule,
+  showInputs,
+}: InterconnectionGraphProps) {
   const wrapperRef = useRef<HTMLDivElement>(null);
   const svgRef = useRef<SVGSVGElement>(null);
-  const dragStateRef = useRef<{ x: number; y: number; startX: number; startY: number } | null>(null);
-
+  const dragRef = useRef<{
+    startX: number;
+    startY: number;
+    x: number;
+    y: number;
+    moved: boolean;
+  } | null>(null);
+  const [viewport, setViewport] = useState<Viewport>({
+    x: 20,
+    y: 20,
+    scale: 1,
+  });
+  const [dragging, setDragging] = useState(false);
   const graph = useMemo(() => {
-    const molecules = project.molecules.filter((molecule) => !visibleIds || visibleIds.has(molecule.id));
-    const moleculeById = new Map(molecules.map((molecule) => [molecule.id, molecule]));
-    const childIdsByParentId = new Map<string, string[]>();
+    const activities = project.molecules.filter(
+      (item) => !visibleIds || visibleIds.has(item.id),
+    );
+    const ids = new Set(activities.map((item) => item.id));
+    const links = project.links.filter(
+      (link) => ids.has(link.parentMoleculeId) && ids.has(link.childMoleculeId),
+    );
+    const activityById = new Map(activities.map((item) => [item.id, item]));
+    const children = new Map<string, typeof links>();
+    const incoming = new Set<string>();
+    activities.forEach((item) => children.set(item.id, []));
+    links.forEach((link) => {
+      children.get(link.parentMoleculeId)?.push(link);
+      incoming.add(link.childMoleculeId);
+    });
+    children.forEach((items) =>
+      items.sort((a, b) => a.sortOrder - b.sortOrder),
+    );
 
-    for (const link of project.links) {
-      if (!moleculeById.has(link.parentMoleculeId) || !moleculeById.has(link.childMoleculeId)) {
-        continue;
-      }
-      childIdsByParentId.set(link.parentMoleculeId, [...(childIdsByParentId.get(link.parentMoleculeId) ?? []), link.childMoleculeId]);
-    }
+    const roots = activities
+      .filter((item) => item.topLevel || !incoming.has(item.id))
+      .sort((a, b) => a.rootOrder - b.rootOrder || a.name.localeCompare(b.name));
+    if (!roots.length && activities[0]) roots.push(activities[0]);
 
-    for (const [parentId, childIds] of childIdsByParentId) {
-      childIdsByParentId.set(
-        parentId,
-        childIds
-          .slice()
-          .sort((left, right) => (moleculeById.get(left)?.name ?? "").localeCompare(moleculeById.get(right)?.name ?? "")),
+    const depthMemo = new Map<string, number>();
+    const branchDepth = (id: string, path = new Set<string>()): number => {
+      if (path.has(id)) return 0;
+      if (depthMemo.has(id)) return depthMemo.get(id)!;
+      const nextPath = new Set(path).add(id);
+      const depth = Math.max(
+        0,
+        ...(children.get(id) ?? []).map(
+          (link) => 1 + branchDepth(link.childMoleculeId, nextPath),
+        ),
       );
-    }
+      depthMemo.set(id, depth);
+      return depth;
+    };
+    const maxDepth = Math.max(0, ...roots.map((root) => branchDepth(root.id)));
 
-    const buildMoleculeNode = (moleculeId: string, ancestry: Set<string>, instancePath: string): TreeNode => {
-      const molecule = moleculeById.get(moleculeId)!;
-      const nextAncestry = new Set(ancestry);
-      nextAncestry.add(molecule.id);
+    const heightMemo = new Map<string, number>();
+    const subtreeHeight = (id: string, path = new Set<string>()): number => {
+      if (path.has(id)) return ACTIVITY_HEIGHT + LANE_PADDING * 2;
+      if (heightMemo.has(id)) return heightMemo.get(id)!;
+      const activity = activityById.get(id);
+      if (!activity) return 0;
+      const nextPath = new Set(path).add(id);
+      const ordinaryCount = showInputs
+        ? activity.rows.filter((row) => row.section === "INPUT" && !row.linkedMoleculeId).length
+        : 0;
+      const childHeights = (children.get(id) ?? []).map((link) =>
+        subtreeHeight(link.childMoleculeId, nextPath),
+      );
+      const inputHeight = ordinaryCount
+        ? ordinaryCount * FLOW_HEIGHT + (ordinaryCount - 1) * FLOW_NODE_GAP
+        : 0;
+      const childStackHeight = childHeights.length
+        ? childHeights.reduce((sum, value) => sum + value, 0) +
+          (childHeights.length - 1) * FLOW_NODE_GAP
+        : 0;
+      const visibleOutputs = activity.rows.filter((row) => row.section === "OUTPUT").length -
+        (incoming.has(id) ? 1 : 0);
+      const outputHeight = visibleOutputs > 0
+        ? visibleOutputs * FLOW_HEIGHT + (visibleOutputs - 1) * FLOW_NODE_GAP
+        : 0;
+      const height = Math.max(
+        ACTIVITY_HEIGHT,
+        inputHeight,
+        childStackHeight,
+        outputHeight,
+      ) + LANE_PADDING * 2;
+      heightMemo.set(id, height);
+      return height;
+    };
 
-      const childNodes = (childIdsByParentId.get(moleculeId) ?? []).flatMap((childId, index) => {
-        if (nextAncestry.has(childId)) {
-          return [];
-        }
-        return buildMoleculeNode(childId, nextAncestry, `${instancePath}:m:${index}:${childId}`);
+    const activityNodes: ActivityNode[] = [];
+    const flowNodes: FlowNode[] = [];
+    const linkedEdges: LinkedEdge[] = [];
+    const placed = new Set<string>();
+    const placeActivity = (id: string, depth: number, blockY: number, path = new Set<string>()) => {
+      const activity = activityById.get(id);
+      if (!activity || path.has(id) || placed.has(id)) return;
+      placed.add(id);
+      const blockHeight = subtreeHeight(id);
+      const x = PADDING + FLOW_WIDTH + FLOW_GAP + (maxDepth - depth) * STAGE_STEP;
+      const node: ActivityNode = {
+        activity,
+        depth,
+        x,
+        blockY,
+        blockHeight,
+        y: blockY + (blockHeight - ACTIVITY_HEIGHT) / 2,
+      };
+      activityNodes.push(node);
+
+      const ordinaryInputs = showInputs
+        ? activity.rows.filter((row) => row.section === "INPUT" && !row.linkedMoleculeId)
+        : [];
+      const childLinks = children.get(id) ?? [];
+      const inputHeight = ordinaryInputs.length
+        ? ordinaryInputs.length * FLOW_HEIGHT +
+          (ordinaryInputs.length - 1) * FLOW_NODE_GAP
+        : 0;
+      ordinaryInputs.forEach((row, index) => {
+        flowNodes.push({
+          row,
+          ownerId: id,
+          input: true,
+          x: x - FLOW_GAP - FLOW_WIDTH,
+          y:
+            node.y + (ACTIVITY_HEIGHT - inputHeight) / 2 +
+            index * (FLOW_HEIGHT + FLOW_NODE_GAP),
+        });
       });
 
-      const ingredientNodes = showAllIngredients
-        ? getMoleculeRows(molecule, "INPUT")
-            .filter((row) => !row.linkedMoleculeId)
-            .sort((left, right) => left.name.localeCompare(right.name))
-            .map<TreeNode>((row, index) => ({
-              instanceId: `${instancePath}:i:${index}:${row.id}`,
-              sourceId: row.id,
-              kind: "ingredient",
-              label: row.name || "Unnamed ingredient",
-              casOrMeta: row.cas || row.unit || "Input ingredient",
-              flagged: row.ecoinventStatus !== "present",
-              row,
-              children: [],
-              subtreeWidth: NODE_WIDTH,
-              maxDepth: 0,
-              x: 0,
-              y: 0,
-            }))
-        : [];
+      const childEntries = childLinks.map((link) => ({
+        link,
+        height: subtreeHeight(link.childMoleculeId),
+      }));
+      const childStackHeight = childEntries.length
+        ? childEntries.reduce((sum, entry) => sum + entry.height, 0) +
+          (childEntries.length - 1) * FLOW_NODE_GAP
+        : 0;
+      let entryY = blockY + (blockHeight - childStackHeight) / 2;
+      const nextPath = new Set(path).add(id);
+      childEntries.forEach((entry) => {
+        const childId = entry.link.childMoleculeId;
+        const sourceRow = activity.rows.find(
+          (row) => row.id === entry.link.sourceRowId || row.linkedMoleculeId === childId,
+        ) ?? null;
+        linkedEdges.push({
+          id: entry.link.id,
+          parentId: id,
+          childId,
+          row: sourceRow,
+          targetY: entryY + entry.height / 2,
+        });
+        placeActivity(childId, depth + 1, entryY, nextPath);
+        entryY += entry.height + FLOW_NODE_GAP;
+      });
 
-      return {
-        instanceId: instancePath,
-        sourceId: molecule.id,
-        kind: "molecule",
-        label: `${molecule.activityType || "Production of"} ${molecule.referenceProductName || molecule.name}`.trim(),
-        casOrMeta: molecule.referenceProductName || "Reference product not defined",
-        flagged:
-          molecule.placeholder ||
-          molecule.needsReview ||
-          getEffectiveResolutionStatus(project, molecule) !== "present",
-        molecule,
-        children: [...childNodes, ...ingredientNodes],
-        subtreeWidth: NODE_WIDTH,
-        maxDepth: 0,
-        x: 0,
-        y: 0,
-      };
+      const allOutputs = activity.rows.filter((row) => row.section === "OUTPUT");
+      const outputs = incoming.has(id) ? allOutputs.slice(1) : allOutputs;
+      const outputHeight = outputs.length
+        ? outputs.length * FLOW_HEIGHT + (outputs.length - 1) * FLOW_NODE_GAP
+        : 0;
+      outputs.forEach((row, index) =>
+        flowNodes.push({
+          row,
+          ownerId: id,
+          input: false,
+          x: x + ACTIVITY_WIDTH + FLOW_GAP,
+          y: blockY + (blockHeight - outputHeight) / 2 + index * (FLOW_HEIGHT + FLOW_NODE_GAP),
+        }),
+      );
     };
 
-    const roots = getTopLevelMolecules(project)
-      .filter((molecule) => moleculeById.has(molecule.id))
-      .sort((left, right) => left.name.localeCompare(right.name))
-      .map((molecule, index) => buildMoleculeNode(molecule.id, new Set<string>(), `root:${index}:${molecule.id}`))
-      .map(measureNode);
-
-    const maxTreeWidth = roots.length > 0 ? Math.max(...roots.map((root) => root.subtreeWidth)) : NODE_WIDTH;
-    let currentTop = PADDING_Y;
-
-    const positionedRoots = roots.map<TreeRoot>((root) => {
-      const positioned = positionNode(root, PADDING_X + (maxTreeWidth - root.subtreeWidth) / 2, currentTop);
-      const height = NODE_HEIGHT + root.maxDepth * LEVEL_GAP;
-      currentTop += height + ROOT_GAP;
-      return { root: positioned, height };
+    let rootY = PADDING;
+    roots.forEach((root) => {
+      placeActivity(root.id, 0, rootY);
+      rootY += subtreeHeight(root.id) + SUBTREE_GAP;
     });
-
+    activities.forEach((activity) => {
+      if (!placed.has(activity.id)) {
+        placeActivity(activity.id, 0, rootY);
+        rootY += subtreeHeight(activity.id) + SUBTREE_GAP;
+      }
+    });
+    const nodeById = new Map(activityNodes.map((node) => [node.activity.id, node]));
+    const width =
+      PADDING * 2 + FLOW_WIDTH * 2 + FLOW_GAP * 2 + ACTIVITY_WIDTH + maxDepth * STAGE_STEP;
+    const canvasHeight = Math.max(PREVIEW_HEIGHT, rootY - SUBTREE_GAP + PADDING);
     return {
-      roots: positionedRoots,
-      width: maxTreeWidth + PADDING_X * 2,
-      height: Math.max(currentTop - ROOT_GAP + PADDING_Y, PREVIEW_HEIGHT),
+      activityNodes,
+      activityById: nodeById,
+      flowNodes,
+      linkedEdges,
+      width,
+      height: canvasHeight,
     };
-  }, [project, showAllIngredients, visibleIds]);
+  }, [project, showInputs, visibleIds]);
 
-  useEffect(() => {
+  const fitView = () => {
     const wrapper = wrapperRef.current;
-    if (!wrapper) {
-      return;
-    }
-
-    const fitScale = clamp(
-      Math.min((wrapper.clientWidth - 32) / graph.width, (wrapper.clientHeight - 32) / graph.height, 1),
-      0.32,
+    if (!wrapper) return;
+    const scale = clamp(
+      Math.min(
+        (wrapper.clientWidth - 40) / graph.width,
+        (wrapper.clientHeight - 40) / graph.height,
+        1,
+      ),
+      0.28,
       1,
     );
-    setViewport({ x: 24, y: 24, scale: fitScale });
+    setViewport({ x: Math.max(20, (wrapper.clientWidth - graph.width * scale) / 2), y: 20, scale });
+  };
+  useEffect(() => {
+    fitView();
   }, [graph.height, graph.width]);
 
-  const zoomBy = (multiplier: number) => {
-    setViewport((current) => ({
-      ...current,
-      scale: clamp(current.scale * multiplier, 0.3, 2.6),
-    }));
-  };
-
-  const resetView = () => {
-    const wrapper = wrapperRef.current;
-    if (!wrapper) {
-      setViewport({ x: 24, y: 24, scale: 1 });
-      return;
-    }
-    const fitScale = clamp(
-      Math.min((wrapper.clientWidth - 32) / graph.width, (wrapper.clientHeight - 32) / graph.height, 1),
-      0.32,
-      1,
-    );
-    setViewport({ x: 24, y: 24, scale: fitScale });
-  };
-
-  const handlePointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
-    dragStateRef.current = {
-      x: viewport.x,
-      y: viewport.y,
-      startX: event.clientX,
-      startY: event.clientY,
-    };
-    setIsDragging(true);
-    event.currentTarget.setPointerCapture(event.pointerId);
-  };
-
-  const handlePointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
-    const dragState = dragStateRef.current;
-    if (!dragState) {
-      return;
-    }
-
-    setViewport((current) => ({
-      ...current,
-      x: dragState.x + (event.clientX - dragState.startX),
-      y: dragState.y + (event.clientY - dragState.startY),
-    }));
-  };
-
-  const endDrag = (event: React.PointerEvent<HTMLDivElement>) => {
-    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-      event.currentTarget.releasePointerCapture(event.pointerId);
-    }
-    dragStateRef.current = null;
-    setIsDragging(false);
-  };
-
-  const downloadHighQualityImage = async () => {
-    const svgElement = svgRef.current;
-    if (!svgElement) {
-      return;
-    }
-
-    const clone = svgElement.cloneNode(true) as SVGSVGElement;
+  const downloadImage = () => {
+    const svg = svgRef.current;
+    if (!svg) return;
+    const clone = svg.cloneNode(true) as SVGSVGElement;
     clone.style.removeProperty("transform");
-    clone.style.removeProperty("transform-origin");
-    clone.style.removeProperty("width");
-    clone.style.removeProperty("height");
     clone.setAttribute("width", String(graph.width));
     clone.setAttribute("height", String(graph.height));
     clone.setAttribute("xmlns", "http://www.w3.org/2000/svg");
-    clone.querySelectorAll("[filter]").forEach((element) => {
-      element.removeAttribute("filter");
-    });
-
-    const markup = `<?xml version="1.0" encoding="UTF-8"?>${new XMLSerializer().serializeToString(clone)}`;
-    const svgUrl = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(markup)}`;
-
-    try {
-      const image = new Image();
-      image.decoding = "async";
-      image.src = svgUrl;
-
-      await new Promise<void>((resolve, reject) => {
-        image.onload = () => resolve();
-        image.onerror = () => reject(new Error("Unable to render SVG export."));
-      });
-
-      const canvas = document.createElement("canvas");
-      const scale = 2.4;
-      canvas.width = Math.round(graph.width * scale);
-      canvas.height = Math.round(graph.height * scale);
-      const context = canvas.getContext("2d");
-      if (!context) {
-        return;
-      }
-      context.fillStyle = "#f7fbfa";
-      context.fillRect(0, 0, canvas.width, canvas.height);
-      context.scale(scale, scale);
-      context.drawImage(image, 0, 0, graph.width, graph.height);
-
-      const pngUrl = canvas.toDataURL("image/png");
-      const link = document.createElement("a");
-      link.href = pngUrl;
-      link.download = `${project.name || "project"}-dependency-tree.png`
-        .toLowerCase()
-        .replace(/[^a-z0-9]+/g, "-")
-        .replace(/^-+|-+$/g, "");
-      link.click();
-    } catch {
-      const link = document.createElement("a");
-      link.href = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(markup)}`;
-      link.download = `${project.name || "project"}-dependency-tree.svg`
-        .toLowerCase()
-        .replace(/[^a-z0-9]+/g, "-")
-        .replace(/^-+|-+$/g, "");
-      link.click();
-    }
+    const theme = getComputedStyle(document.documentElement);
+    const themeStyle = document.createElementNS("http://www.w3.org/2000/svg", "style");
+    themeStyle.textContent = `:root{--graph-bg:${theme.getPropertyValue("--graph-bg")};--panel:${theme.getPropertyValue("--panel")};--ink:${theme.getPropertyValue("--ink")};--muted:${theme.getPropertyValue("--muted")};--line:${theme.getPropertyValue("--line")};--graph-line:${theme.getPropertyValue("--graph-line")}}`;
+    clone.prepend(themeStyle);
+    const link = document.createElement("a");
+    link.href = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(new XMLSerializer().serializeToString(clone))}`;
+    link.download = `${project.name || "project"}-inventory-network.svg`
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "");
+    link.click();
   };
 
-  const graphControlClass =
-    "h-10 border-r border-mist px-4 text-xs font-semibold text-slate transition hover:bg-white hover:text-accent active:scale-[0.98] last:border-r-0";
-
   return (
-    <section className="panel-surface rounded-lg border border-white/80 p-4 sm:p-5">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <h2 className="text-2xl font-semibold text-ink">Graph</h2>
-        <label className="inline-flex h-10 items-center gap-2 rounded-md border border-mist/80 bg-white px-3 text-xs font-semibold text-slate shadow-sm transition hover:border-accent/30 hover:text-ink active:scale-[0.98]">
-          <input
-            checked={showAllIngredients}
-            className="h-4 w-4 rounded border-mist text-accent focus:ring-accent"
-            onChange={(event) => setShowAllIngredients(event.target.checked)}
-            type="checkbox"
-          />
-          Show inputs
-        </label>
-      </div>
-
-      <div className="mt-4 flex flex-wrap items-center overflow-hidden rounded-lg border border-mist/80 bg-lab shadow-inner">
-        <button
-          className={graphControlClass}
-          onClick={() => zoomBy(1.14)}
-          type="button"
-        >
-          Zoom in
-        </button>
-        <button
-          className={graphControlClass}
-          onClick={() => zoomBy(0.88)}
-          type="button"
-        >
-          Zoom out
-        </button>
-        <button
-          className={graphControlClass}
-          onClick={resetView}
-          type="button"
-        >
-          Reset graph position
-        </button>
-        <button
-          className={graphControlClass}
-          onClick={() => void downloadHighQualityImage()}
-          type="button"
-        >
-          Download image
-        </button>
-      </div>
-
-      {graph.roots.length > 0 ? (
+    <section className="overflow-hidden border-y border-mist/60 bg-white">
+      <div className="flex flex-wrap items-start justify-between gap-4 border-b border-mist/60 px-5 py-4 sm:px-6">
+        <div>
+          <h2 className="text-xl font-semibold text-ink">Inventory network</h2>
+          <p className="mt-1 max-w-2xl text-sm leading-6 text-slate">
+            Inputs feed activities; activities create outputs. Inputs modelled
+            by another project activity remain connected as activity nodes.
+          </p>
+        </div>
         <div
-          className={`mt-5 overflow-hidden rounded-lg border border-mist/80 bg-lab ${
-            isDragging ? "cursor-grabbing" : "cursor-grab"
-          }`}
-          onPointerDown={handlePointerDown}
-          onPointerMove={handlePointerMove}
-          onPointerUp={endDrag}
-          onPointerCancel={endDrag}
+          className="flex flex-wrap items-center gap-2"
+          aria-label="Graph controls"
+        >
+          <GraphButton
+            label="Zoom in"
+            onClick={() =>
+              setViewport((v) => ({
+                ...v,
+                scale: clamp(v.scale * 1.16, 0.28, 2.4),
+              }))
+            }
+          />
+          <GraphButton
+            label="Zoom out"
+            onClick={() =>
+              setViewport((v) => ({
+                ...v,
+                scale: clamp(v.scale * 0.86, 0.28, 2.4),
+              }))
+            }
+          />
+          <GraphButton label="Fit network" onClick={fitView} />
+          <GraphButton label="Download" onClick={downloadImage} />
+        </div>
+      </div>
+      {graph.activityNodes.length ? (
+        <div
+          className={`theme-graph relative m-5 overflow-hidden border border-mist/60 ${dragging ? "cursor-grabbing" : "cursor-grab"}`}
           ref={wrapperRef}
-          style={{ height: `${PREVIEW_HEIGHT}px`, touchAction: "none" }}
+          style={{ height: PREVIEW_HEIGHT, touchAction: "none" }}
+          onPointerDown={(event) => {
+            dragRef.current = {
+              startX: event.clientX,
+              startY: event.clientY,
+              x: viewport.x,
+              y: viewport.y,
+              moved: false,
+            };
+            setDragging(true);
+            event.currentTarget.setPointerCapture(event.pointerId);
+          }}
+          onPointerMove={(event) => {
+            const drag = dragRef.current;
+            if (!drag) return;
+            const dx = event.clientX - drag.startX;
+            const dy = event.clientY - drag.startY;
+            if (Math.abs(dx) + Math.abs(dy) > 5) drag.moved = true;
+            setViewport((v) => ({ ...v, x: drag.x + dx, y: drag.y + dy }));
+          }}
+          onPointerUp={(event) => {
+            if (event.currentTarget.hasPointerCapture(event.pointerId))
+              event.currentTarget.releasePointerCapture(event.pointerId);
+            setDragging(false);
+            window.setTimeout(() => {
+              dragRef.current = null;
+            }, 0);
+          }}
         >
           <svg
-            className="select-none"
-            height={graph.height}
             ref={svgRef}
+            width={graph.width}
+            height={graph.height}
+            viewBox={`0 0 ${graph.width} ${graph.height}`}
             style={{
               transform: `translate(${viewport.x}px, ${viewport.y}px) scale(${viewport.scale})`,
               transformOrigin: "0 0",
             }}
-            viewBox={`0 0 ${graph.width} ${graph.height}`}
-            width={graph.width}
           >
-            <rect fill="#f4f7fa" height={graph.height} rx="8" width={graph.width} />
-
-            {graph.roots.map((entry, index) => (
-              <rect
-                fill={index % 2 === 0 ? "#eef2f6" : "#f7f9fb"}
-                height={entry.height + 48}
-                key={`tree-band:${entry.root.instanceId}`}
-                rx="8"
-                width={graph.width - 32}
-                x={16}
-                y={entry.root.y - 24}
-              />
-            ))}
-
-            {graph.roots
-              .flatMap((entry) => flattenNodes(entry.root))
-              .filter((node) => node.children.length > 0)
-              .map((node) => {
-                const parentCenterX = node.x + NODE_WIDTH / 2;
-                const parentBottomY = node.y + NODE_HEIGHT;
-                const branchY = parentBottomY + 34;
-                const childCenters = node.children.map((child) => child.x + NODE_WIDTH / 2);
-
-                return (
-                  <g key={`connector:${node.instanceId}`}>
-                    <line
-                      stroke="#a8b8c5"
-                      strokeLinecap="round"
-                      strokeWidth="3"
-                      x1={parentCenterX}
-                      x2={parentCenterX}
-                      y1={parentBottomY}
-                      y2={branchY}
-                    />
-                    {node.children.length > 1 ? (
-                      <line
-                        stroke="#a8b8c5"
-                        strokeLinecap="round"
-                        strokeWidth="3"
-                        x1={Math.min(...childCenters)}
-                        x2={Math.max(...childCenters)}
-                        y1={branchY}
-                        y2={branchY}
-                      />
-                    ) : null}
-                    {node.children.map((child) => (
-                      <line
-                        key={`child-connector:${child.instanceId}`}
-                        stroke="#a8b8c5"
-                        strokeLinecap="round"
-                        strokeWidth="3"
-                        x1={child.x + NODE_WIDTH / 2}
-                        x2={child.x + NODE_WIDTH / 2}
-                        y1={branchY}
-                        y2={child.y}
-                      />
-                    ))}
-                  </g>
-                );
-              })}
-
-            {graph.roots.flatMap((entry) => flattenNodes(entry.root)).map((node) => {
-              const status =
-                node.kind === "ingredient" && node.row
-                  ? node.row.ecoinventStatus
-                  : getEffectiveResolutionStatus(project, node.molecule!);
-              const labelLines = wrapLabel(node.label, 30);
-              const labelBaseY = 36;
-              const casY = labelBaseY + labelLines.length * 24 + 8;
-              const badgeY = Math.min(casY + 12, NODE_HEIGHT - 40);
-
+            <defs>
+              <marker
+                id="network-arrow"
+                markerHeight="8"
+                markerWidth="8"
+                orient="auto"
+                refX="7"
+                refY="4"
+              >
+                <path d="M0 0 8 4 0 8Z" fill="var(--muted)" />
+              </marker>
+            </defs>
+            <rect width={graph.width} height={graph.height} fill="var(--graph-bg)" />
+            {graph.flowNodes.map((flow) => {
+              const owner = graph.activityById.get(flow.ownerId);
+              if (!owner) return null;
+              const nameLines = wrapCompact(flow.row.name || "Unnamed flow", 31);
+              const x1 = flow.input
+                ? flow.x + FLOW_WIDTH
+                : owner.x + ACTIVITY_WIDTH;
+              const y1 = flow.input
+                ? flow.y + FLOW_HEIGHT / 2
+                : owner.y + ACTIVITY_HEIGHT / 2;
+              const x2 = flow.input ? owner.x : flow.x;
+              const y2 = flow.input
+                ? clamp(
+                    flow.y + FLOW_HEIGHT / 2,
+                    owner.y + 20,
+                    owner.y + ACTIVITY_HEIGHT - 20,
+                  )
+                : flow.y + FLOW_HEIGHT / 2;
               return (
                 <g
+                  key={`${flow.ownerId}:${flow.row.id}`}
                   className="cursor-pointer"
-                  key={node.instanceId}
-                  onClick={() => {
-                    if (node.kind === "molecule" && node.molecule) {
-                      onOpenMolecule(node.molecule.id);
-                    }
-                  }}
+                  onClick={() => onOpenMolecule(flow.ownerId)}
+                  role="button"
+                  tabIndex={0}
                 >
-                  <rect
-                    fill={node.kind === "ingredient" ? "#fbfcfc" : "#ffffff"}
-                    filter="drop-shadow(0 10px 18px rgba(16,36,58,0.08))"
-                    height={NODE_HEIGHT}
-                    rx={CARD_RADIUS}
-                    stroke={getStatusStroke(status)}
-                    strokeDasharray={node.flagged ? "9 7" : undefined}
-                    strokeWidth={node.flagged ? 3 : 2.4}
-                    width={NODE_WIDTH}
-                    x={node.x}
-                    y={node.y}
+                  <path
+                    d={`M${x1} ${y1} C${(x1 + x2) / 2} ${y1},${(x1 + x2) / 2} ${y2},${x2 - (flow.input ? 7 : 0)} ${y2}`}
+                    fill="none"
+                    markerEnd="url(#network-arrow)"
+                    stroke="var(--graph-line)"
+                    strokeWidth="1.5"
                   />
-                  {labelLines.map((line, index) => (
-                    <text
-                      fill="#132021"
-                      fontSize="18"
-                      fontWeight="700"
-                      key={`label:${node.instanceId}:${index}`}
-                      x={node.x + 24}
-                      y={node.y + labelBaseY + index * 24}
-                    >
-                      {line}
-                    </text>
-                  ))}
-                  <text fill="#61737a" fontSize="14" fontWeight="600" x={node.x + 24} y={node.y + casY}>
-                    {node.casOrMeta}
+                  <rect
+                    x={flow.x}
+                    y={flow.y}
+                    width={FLOW_WIDTH}
+                    height={FLOW_HEIGHT}
+                    rx="4"
+                    fill="var(--panel)"
+                    stroke="var(--line)"
+                  />
+                  <text
+                    x={flow.x + 12}
+                    y={flow.y + 18}
+                    fill="var(--ink)"
+                    fontSize="11"
+                    fontWeight="700"
+                  >
+                    {nameLines.map((line, index) => <tspan key={line} x={flow.x + 12} dy={index ? 14 : 0}>{line}</tspan>)}
                   </text>
-                  {node.flagged ? (
-                    <>
-                      <rect
-                        fill="#fff4ef"
-                        height="28"
-                        rx="14"
-                        stroke="#b85c38"
-                        strokeWidth="1.7"
-                        width="86"
-                        x={node.x + 24}
-                        y={node.y + badgeY}
-                      />
-                      <text
-                        dominantBaseline="middle"
-                        fill="#b35d39"
-                        fontSize="15"
-                        fontWeight="700"
-                        textAnchor="middle"
-                        x={node.x + 67}
-                        y={node.y + badgeY + 14}
-                      >
-                        flagged
-                      </text>
-                    </>
-                  ) : null}
+                  <text
+                    x={flow.x + 12}
+                    y={flow.y + 52}
+                    fill="var(--muted)"
+                    fontSize="10"
+                  >
+                    {compact(flowAmount(flow.row), 30)}
+                  </text>
+                </g>
+              );
+            })}
+            {graph.linkedEdges.map((edge) => {
+              const parent = graph.activityById.get(edge.parentId);
+              const child = graph.activityById.get(edge.childId);
+              if (!parent || !child) return null;
+              const x1 = child.x + ACTIVITY_WIDTH;
+              const y1 = child.y + ACTIVITY_HEIGHT / 2;
+              const x2 = parent.x;
+              const y2 = clamp(
+                edge.targetY,
+                parent.y + 20,
+                parent.y + ACTIVITY_HEIGHT - 20,
+              );
+              const bend = Math.max(70, (x2 - x1) * 0.44);
+              const labelX = x1 + 28 + LINK_LABEL_WIDTH / 2;
+              const labelY = (y1 + y2) / 2;
+              const referenceOutput = child.activity.rows.find(
+                (row) => row.section === "OUTPUT",
+              );
+              const label = edge.row?.name || referenceOutput?.name || child.activity.referenceProductName || child.activity.name;
+              const amount = edge.row ? flowAmount(edge.row) : referenceOutput ? flowAmount(referenceOutput) : "Reference flow";
+              return (
+                <g
+                  key={edge.id}
+                  className="cursor-pointer"
+                  onClick={() => onOpenMolecule(child.activity.id)}
+                >
+                  <path
+                    d={`M${x1} ${y1} C${x1 + bend} ${y1},${x2 - bend} ${y2},${x2 - 7} ${y2}`}
+                    fill="none"
+                    markerEnd="url(#network-arrow)"
+                    stroke="var(--graph-line)"
+                    strokeWidth="2"
+                  />
+                  <rect
+                    x={labelX - LINK_LABEL_WIDTH / 2}
+                    y={labelY - 21}
+                    width={LINK_LABEL_WIDTH}
+                    height="42"
+                    rx="4"
+                    fill="var(--graph-bg)"
+                    stroke="var(--line)"
+                  />
+                  <text
+                    x={labelX}
+                    y={labelY - 3}
+                    fill="var(--ink)"
+                    fontSize="10"
+                    fontWeight="700"
+                    textAnchor="middle"
+                  >
+                    {compact(label, 28)}
+                  </text>
+                  <text
+                    x={labelX}
+                    y={labelY + 12}
+                    fill="var(--muted)"
+                    fontSize="9"
+                    textAnchor="middle"
+                  >
+                    {compact(amount, 27)}
+                  </text>
+                </g>
+              );
+            })}
+            {graph.activityNodes.map((node) => {
+              const titleLines = wrapCompact(activityTitle(node.activity), 34);
+              return (
+                <g
+                  key={node.activity.id}
+                  className="cursor-pointer"
+                  onClick={() => {
+                    if (!dragRef.current?.moved) onOpenMolecule(node.activity.id);
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" || event.key === " ")
+                      onOpenMolecule(node.activity.id);
+                  }}
+                  role="button"
+                  tabIndex={0}
+                >
+                <rect
+                  x={node.x}
+                  y={node.y}
+                  width={ACTIVITY_WIDTH}
+                  height={ACTIVITY_HEIGHT}
+                  rx="5"
+                  fill="var(--panel)"
+                  stroke={node.activity.topLevel ? "var(--ink)" : "var(--graph-line)"}
+                  strokeWidth={node.activity.topLevel ? 2 : 1.5}
+                />
+                <text
+                  x={node.x + 15}
+                  y={node.y + 35}
+                  fill="var(--ink)"
+                  fontSize="14"
+                  fontWeight="700"
+                >
+                  {titleLines.map((line, index) => <tspan key={line} x={node.x + 15} dy={index ? 18 : 0}>{line}</tspan>)}
+                </text>
+                <text
+                  x={node.x + 15}
+                  y={node.y + 91}
+                  fill="var(--muted)"
+                  fontSize="10"
+                >
+                  {
+                    node.activity.rows.filter((r) => r.section === "INPUT")
+                      .length
+                  }{" "}
+                  inputs ·{" "}
+                  {
+                    node.activity.rows.filter((r) => r.section === "OUTPUT")
+                      .length
+                  }{" "}
+                  outputs
+                </text>
                 </g>
               );
             })}
           </svg>
         </div>
       ) : (
-        <div className="mt-5 rounded-lg border border-dashed border-mist bg-lab px-4 py-8 text-sm text-slate">
-          No graph yet. Add an activity first.
+        <div className="m-5 py-10 text-center text-sm text-slate">
+          No inventory network yet. Create the first activity to begin.
         </div>
       )}
     </section>

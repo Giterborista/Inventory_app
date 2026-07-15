@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { CreateMoleculeDialog } from "@/features/workbench/components/create-molecule-dialog";
 import { Dashboard } from "@/features/workbench/components/dashboard";
@@ -29,8 +29,8 @@ import {
   loadProjectJsonFile,
 } from "@/features/workbench/exporters";
 import { getHierarchySearchMatches, getMoleculeById, getUnresolvedMolecules } from "@/features/workbench/selectors";
-import { createEmptyWorkbenchState, nowIso } from "@/features/workbench/state-utils";
-import type { MoleculeDraft, ReconstructionSection, WorkbenchState } from "@/features/workbench/types";
+import { createEmptyWorkbenchState, makeClientId, nowIso } from "@/features/workbench/state-utils";
+import type { MoleculeDraft, ReconstructionRow, ReconstructionSection, WorkbenchState } from "@/features/workbench/types";
 
 type SessionState = "clean" | "dirty" | "opened" | "saved";
 type UndoState = {
@@ -38,13 +38,14 @@ type UndoState = {
   state: WorkbenchState;
 } | null;
 
+const BROWSER_DRAFT_KEY = "proxy-reconstruction-studio:project-draft:v1";
+
 export function WorkbenchApp() {
   const [state, setState] = useState<WorkbenchState>(() => createEmptyWorkbenchState());
   const [searchQuery, setSearchQuery] = useState("");
   const [sessionState, setSessionState] = useState<SessionState>("clean");
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [createDialogTitle, setCreateDialogTitle] = useState("Create activity");
-  const [createDialogDescription, setCreateDialogDescription] = useState("");
   const [createDialogSubmitLabel, setCreateDialogSubmitLabel] = useState("Create activity");
   const [createDialogInitialValues, setCreateDialogInitialValues] = useState<Partial<MoleculeDraft>>({});
   const [pendingParentChildId, setPendingParentChildId] = useState<string | null>(null);
@@ -52,6 +53,62 @@ export function WorkbenchApp() {
   const [undoState, setUndoState] = useState<UndoState>(null);
   const [isExportingProjectPdf, setIsExportingProjectPdf] = useState(false);
   const [supportiveInformationDialogOpen, setSupportiveInformationDialogOpen] = useState(false);
+  const [browserDraftReady, setBrowserDraftReady] = useState(false);
+  const [browserDraftRecovered, setBrowserDraftRecovered] = useState(false);
+  const browserDraftSaveTimer = useRef<number | null>(null);
+
+  useEffect(() => {
+    if (!undoState) return;
+    const timer = window.setTimeout(() => setUndoState(null), 5000);
+    return () => window.clearTimeout(timer);
+  }, [undoState]);
+
+  useEffect(() => {
+    try {
+      const savedDraft = window.localStorage.getItem(BROWSER_DRAFT_KEY);
+      if (savedDraft) {
+        const draftFile = new File([savedDraft], "browser-draft.json", { type: "application/json" });
+        void loadProjectJsonFile(draftFile).then((recoveredState) => {
+          const hasMeaningfulDraft =
+            recoveredState.project.molecules.length > 0 ||
+            recoveredState.project.name.trim() !== "Untitled proxy project";
+          if (hasMeaningfulDraft) {
+            setState(ensureLinkedObjectReferenceOutputs(recoveredState));
+            setSessionState("opened");
+            setBrowserDraftRecovered(true);
+          }
+          setBrowserDraftReady(true);
+        }).catch(() => setBrowserDraftReady(true));
+        return;
+      }
+    } catch {
+      // Browser storage may be disabled. The downloadable JSON workflow remains available.
+    }
+    setBrowserDraftReady(true);
+  }, []);
+
+  useEffect(() => {
+    if (!browserDraftReady) {
+      return undefined;
+    }
+
+    if (browserDraftSaveTimer.current !== null) {
+      window.clearTimeout(browserDraftSaveTimer.current);
+    }
+    browserDraftSaveTimer.current = window.setTimeout(() => {
+      try {
+        window.localStorage.setItem(BROWSER_DRAFT_KEY, buildProjectJsonExport(state.project).content);
+      } catch {
+        // Downloadable project JSON remains the fallback when browser storage is unavailable.
+      }
+    }, 250);
+
+    return () => {
+      if (browserDraftSaveTimer.current !== null) {
+        window.clearTimeout(browserDraftSaveTimer.current);
+      }
+    };
+  }, [browserDraftReady, state.project]);
 
   useEffect(() => {
     if (sessionState !== "dirty") {
@@ -85,6 +142,7 @@ export function WorkbenchApp() {
     setState(nextState);
     setSessionState(nextSessionState);
     setUndoState(null);
+    setBrowserDraftRecovered(false);
   };
 
   const downloadProjectJson = () => {
@@ -98,10 +156,15 @@ export function WorkbenchApp() {
       return true;
     }
 
-    return window.confirm("Replace the current session? Unsaved JSON changes will be lost.");
+    return window.confirm(
+      "Open another project? The current browser draft will be replaced. Export JSON first if you need to keep or share it.",
+    );
   };
 
   const selectedMolecule = getMoleculeById(state.project, state.selectedMoleculeId);
+  const pendingParentSource = pendingParentChildId
+    ? state.project.molecules.find((molecule) => molecule.id === pendingParentChildId) ?? null
+    : null;
   const filteredMolecules = getHierarchySearchMatches(state.project, searchQuery);
   const unresolvedMolecules = getUnresolvedMolecules(state.project);
 
@@ -112,8 +175,8 @@ export function WorkbenchApp() {
     });
   };
 
-  const openInputRowEditorForMolecule = (moleculeId: string) => {
-    setAutoOpenRowEditorSection("INPUT");
+  const openMoleculeForFix = (moleculeId: string, section: ReconstructionSection) => {
+    setAutoOpenRowEditorSection(section);
     applyStateChange((current) => selectMolecule(ensureLinkedObjectReferenceOutputs(current), moleculeId), {
       markDirty: false,
     });
@@ -123,18 +186,16 @@ export function WorkbenchApp() {
     applyStateChange((current) => selectMolecule(current, null), { markDirty: false });
   };
 
-  const openCreateDialog = (initialValues?: Partial<MoleculeDraft>) => {
-    setCreateDialogTitle("Create activity");
-    setCreateDialogDescription("");
-    setCreateDialogSubmitLabel("Create activity");
-    setCreateDialogInitialValues(initialValues ?? {});
+  const openCreateDialog = (parentMoleculeId?: string) => {
+    setCreateDialogTitle(parentMoleculeId ? "Add child activity" : "Add main activity");
+    setCreateDialogSubmitLabel(parentMoleculeId ? "Add child activity" : "Add main activity");
+    setCreateDialogInitialValues(parentMoleculeId ? { topLevel: false, parentMoleculeId } : { topLevel: true, parentMoleculeId: "" });
     setPendingParentChildId(null);
     setCreateDialogOpen(true);
   };
 
   const openCreateParentDialog = (childMoleculeId: string) => {
     setCreateDialogTitle("Create parent activity");
-    setCreateDialogDescription("");
     setCreateDialogSubmitLabel("Create activity");
     setCreateDialogInitialValues({ topLevel: true });
     setPendingParentChildId(childMoleculeId);
@@ -165,6 +226,32 @@ export function WorkbenchApp() {
     }
   };
 
+  const handleImportActivityForInput = async (
+    file: File,
+    parentMoleculeId: string,
+    rowId: string,
+    values: Partial<ReconstructionRow> & { section: ReconstructionSection },
+  ) => {
+    const importedState = await loadProjectJsonFile(file);
+    applyStateChange((current) => {
+      const rowExists = current.project.molecules
+        .find((molecule) => molecule.id === parentMoleculeId)
+        ?.rows.some((row) => row.id === rowId);
+      return importMoleculeSubtree(current, importedState, {
+        parentMoleculeId,
+        sourceRowId: rowExists ? rowId : undefined,
+        rowValues: rowExists ? undefined : {
+          totalValue: values.totalValue ?? "",
+          unit: values.unit ?? "kg",
+          reference: values.reference ?? "",
+          description: values.description ?? "",
+          notes: values.notes ?? "",
+        },
+        navigateToImported: false,
+      });
+    });
+  };
+
   const handleCreateMolecule = (draft: MoleculeDraft) => {
     applyStateChange((current) =>
       createMolecule(current, draft, {
@@ -180,6 +267,8 @@ export function WorkbenchApp() {
   const completeMoleculeDraft = (draft: Partial<MoleculeDraft>): MoleculeDraft => ({
     activityType: draft.activityType?.trim() || "Production of",
     referenceProductName: (draft.referenceProductName || draft.name)?.trim() || "Untitled activity",
+    referenceAmount: draft.referenceAmount?.trim() || "1",
+    referenceUnit: draft.referenceUnit?.trim() || "kg",
     objectKind: draft.objectKind ?? "generic_object",
     name: (draft.referenceProductName || draft.name)?.trim() || "Untitled activity",
     cas: draft.cas ?? "",
@@ -211,7 +300,14 @@ export function WorkbenchApp() {
   };
 
   const createNewProject = () => {
-    if (!window.confirm("Start a new empty project? Unsaved session changes will be replaced.")) {
+    const hasCurrentProject =
+      state.project.molecules.length > 0 || state.project.name.trim() !== "Untitled proxy project";
+    if (
+      hasCurrentProject &&
+      !window.confirm(
+        "Start a new empty project? The current browser draft will be replaced. Export JSON first if you need to keep it.",
+      )
+    ) {
       return;
     }
 
@@ -244,7 +340,7 @@ export function WorkbenchApp() {
           onAutoOpenRowEditorHandled={() => setAutoOpenRowEditorSection(null)}
           onBack={closeObjectInventory}
           onDelete={() => {
-            if (!window.confirm(`Delete ${selectedMolecule.name}? This will unlink it from any parent rows.`)) {
+            if (!window.confirm(`Delete ${selectedMolecule.name}? It will be removed from the project and unlinked from every parent activity.`)) {
               return;
             }
             applyStateChange((current) => {
@@ -266,18 +362,23 @@ export function WorkbenchApp() {
             })
           }
           onCreateChildFromRow={(rowId, _values, draft) => {
+            const newMoleculeId = makeClientId("molecule");
             applyStateChange((current) =>
               createMolecule(current, completeMoleculeDraft({ topLevel: false, ...draft }), {
                 parentMoleculeId: selectedMolecule.id,
                 sourceRowId: rowId,
                 navigateToNew: false,
+                newMoleculeId,
               }),
             );
+            return newMoleculeId;
           }}
+          onImportActivityFromFile={(file, rowId, values) => handleImportActivityForInput(file, selectedMolecule.id, rowId, values)}
           onApplyPasDefaults={(profile) =>
             applyStateChange((current) => applyPasDefaults(current, selectedMolecule.id, profile))
           }
           onOpenMolecule={openMolecule}
+          onOpenMoleculeForFix={openMoleculeForFix}
           onRescaleRows={() =>
             applyStateChange((current) => rescaleMoleculeRows(current, selectedMolecule.id))
           }
@@ -305,11 +406,10 @@ export function WorkbenchApp() {
         />
       ) : (
         <Dashboard
-          onAddInputRow={openInputRowEditorForMolecule}
           onCreateParentMolecule={openCreateParentDialog}
           filteredMolecules={filteredMolecules}
           isExportingProjectPdf={isExportingProjectPdf}
-          onCreateMolecule={() => openCreateDialog()}
+          onCreateMolecule={(parentMoleculeId) => openCreateDialog(parentMoleculeId)}
           onNewProject={createNewProject}
           onOpenMolecule={openMolecule}
           onOpenProjectJson={(file) => void openProjectJson(file)}
@@ -322,6 +422,16 @@ export function WorkbenchApp() {
           project={state.project}
           searchQuery={searchQuery}
           unresolvedMolecules={unresolvedMolecules}
+          browserDraftRecovered={browserDraftRecovered}
+          saveStatusLabel={
+            sessionState === "dirty"
+              ? "Saved automatically in this browser"
+              : sessionState === "saved"
+                ? "Project downloaded"
+                : browserDraftRecovered
+                  ? "Recovered from this browser"
+                  : "Saved automatically in this browser"
+          }
         />
       )}
 
@@ -333,30 +443,30 @@ export function WorkbenchApp() {
       />
 
       <CreateMoleculeDialog
-        description={createDialogDescription}
         initialValues={createDialogInitialValues}
         onClose={() => {
           setCreateDialogOpen(false);
           setPendingParentChildId(null);
         }}
-        onImportJson={(file) =>
-          void handleImportSubtree(file, {
-            replaceMoleculeId: pendingParentChildId ?? undefined,
-            navigateToImported: true,
-          })
-        }
         onSubmit={handleCreateMolecule}
         open={createDialogOpen}
-        showImportOption={!pendingParentChildId}
+        parentSourceActivity={pendingParentSource ? {
+          activityName: `${pendingParentSource.activityType || "Production of"} ${pendingParentSource.referenceProductName || pendingParentSource.name}`.trim(),
+          outputName: pendingParentSource.referenceProductName || pendingParentSource.name,
+        } : undefined}
         submitLabel={createDialogSubmitLabel}
         title={createDialogTitle}
       />
 
       {undoState ? (
-        <div className="fixed bottom-5 left-1/2 z-[70] flex -translate-x-1/2 items-center gap-4 rounded-full border border-mist/80 bg-white px-5 py-3 shadow-xl">
-          <span className="text-sm text-ink">{undoState.label}</span>
+        <div
+          aria-live="polite"
+          className="fixed bottom-5 left-1/2 z-[70] flex w-[min(30rem,calc(100vw-2rem))] -translate-x-1/2 items-center gap-4 rounded-lg border border-mist/80 bg-white py-3 pl-4 pr-12 shadow-xl"
+          role="status"
+        >
+          <span className="min-w-0 flex-1 text-sm text-ink">{undoState.label}</span>
           <button
-            className="rounded-full bg-ink px-4 py-2 text-sm font-semibold text-white transition hover:bg-accent"
+            className="shrink-0 rounded-md bg-accent px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#1f4b87]"
             onClick={() => {
               setState(undoState.state);
               setSessionState("dirty");
@@ -364,14 +474,19 @@ export function WorkbenchApp() {
             }}
             type="button"
           >
-            Undo
+            Recover
           </button>
           <button
-            className="text-sm text-slate transition hover:text-ink"
+            aria-label="Dismiss deletion message"
+            className="absolute right-2 top-2 grid h-8 w-8 place-items-center rounded-full text-slate transition hover:bg-lab hover:text-ink"
             onClick={() => setUndoState(null)}
             type="button"
           >
-            Dismiss
+            <svg aria-hidden="true" className="absolute inset-0 h-8 w-8 -rotate-90" viewBox="0 0 32 32">
+              <circle className="undo-countdown-track" cx="16" cy="16" fill="none" r="13" strokeWidth="1.5" />
+              <circle className="undo-countdown-ring" cx="16" cy="16" fill="none" pathLength="100" r="13" strokeLinecap="round" strokeWidth="1.5" />
+            </svg>
+            <span aria-hidden="true" className="relative text-base leading-none">×</span>
           </button>
         </div>
       ) : null}

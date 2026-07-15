@@ -1,9 +1,16 @@
 "use client";
 
-import { type ReactNode, useMemo } from "react";
+import { type ReactNode, useEffect, useMemo, useState } from "react";
 
-import { ReviewStatusIcon } from "@/features/workbench/components/review-status-icon";
-import { getAncestorIds, getChildMolecules, getMoleculeInventoryReviewState, getTopLevelMolecules } from "@/features/workbench/selectors";
+import {
+  getAncestorIds,
+  getChildMolecules,
+  getHierarchySearchMatches,
+  getHierarchyVisibleIds,
+  getMoleculeInventoryReviewState,
+  getTopLevelMolecules,
+} from "@/features/workbench/selectors";
+import { ThemeToggle } from "@/features/workbench/components/theme-toggle";
 import type { MoleculeRecord, ProjectRecord } from "@/features/workbench/types";
 
 type WorkspaceNavigatorProps = {
@@ -20,53 +27,89 @@ function activityLabel(molecule: MoleculeRecord) {
   }`.trim();
 }
 
-function MiniTreeNode({
-  molecule,
-  project,
+function TreeRow({
   depth,
-  selectedMoleculeId,
   expandedIds,
+  molecule,
   onOpenMolecule,
+  project,
+  selectedMoleculeId,
+  setExpandedIds,
+  visibleIds,
 }: {
-  molecule: MoleculeRecord;
-  project: ProjectRecord;
   depth: number;
-  selectedMoleculeId: string;
   expandedIds: Set<string>;
+  molecule: MoleculeRecord;
   onOpenMolecule: (moleculeId: string) => void;
+  project: ProjectRecord;
+  selectedMoleculeId: string;
+  setExpandedIds: (updater: (current: Set<string>) => Set<string>) => void;
+  visibleIds: Set<string> | null;
 }) {
-  const children = getChildMolecules(project, molecule.id);
-  const isSelected = molecule.id === selectedMoleculeId;
-  const isExpanded = children.length > 0 && expandedIds.has(molecule.id);
+  if (visibleIds && !visibleIds.has(molecule.id)) {
+    return null;
+  }
+
+  const children = getChildMolecules(project, molecule.id).filter(
+    (child) => !visibleIds || visibleIds.has(child.id),
+  );
+  const selected = molecule.id === selectedMoleculeId;
+  const expanded = children.length > 0 && expandedIds.has(molecule.id);
   const reviewState = getMoleculeInventoryReviewState(project, molecule);
+  const inputCount = molecule.rows.filter((row) => row.section === "INPUT").length;
 
   return (
     <div>
-      <button
-        className={`group flex w-full items-start gap-2 rounded-lg border px-3 py-2 text-left transition ${
-          isSelected
-            ? "border-2 border-accent bg-white text-ink shadow-md ring-2 ring-accent/15"
-            : "border-mist bg-white text-ink hover:border-accent/35"
+      <div
+        className={`group relative flex min-h-11 items-center rounded-md transition ${
+          selected ? "bg-white/5 text-ink before:absolute before:inset-y-2 before:left-0 before:w-0.5 before:rounded-full before:bg-slate" : "text-slate hover:bg-white/[0.035] hover:text-ink"
         }`}
-        onClick={() => onOpenMolecule(molecule.id)}
-        style={{ paddingLeft: `${12 + depth * 14}px` }}
-        type="button"
+        style={{ paddingLeft: `${8 + depth * 16}px` }}
       >
-        <span className="mt-0.5 shrink-0">
-          <ReviewStatusIcon size="sm" state={reviewState} />
-        </span>
-        <span className="min-w-0">
-          <span className="line-clamp-2 text-xs font-semibold leading-4">{activityLabel(molecule)}</span>
-          <span className="mt-0.5 block truncate text-[11px] text-slate">
-            {molecule.referenceProductName || molecule.name || "No reference product"}
+        {depth > 0 ? (
+          <span className="absolute inset-y-0 w-px bg-mist" style={{ left: `${15 + (depth - 1) * 16}px` }} />
+        ) : null}
+        <button
+          aria-label={children.length > 0 ? `${expanded ? "Collapse" : "Expand"} ${activityLabel(molecule)}` : undefined}
+          className={`mr-1 grid h-7 w-7 shrink-0 place-items-center rounded text-xs transition ${
+            children.length > 0 ? "hover:bg-white" : "pointer-events-none text-transparent"
+          }`}
+          onClick={() =>
+            setExpandedIds((current) => {
+              const next = new Set(current);
+              if (next.has(molecule.id)) {
+                next.delete(molecule.id);
+              } else {
+                next.add(molecule.id);
+              }
+              return next;
+            })
+          }
+          type="button"
+        >
+          {children.length > 0 ? (expanded ? "⌄" : "›") : "·"}
+        </button>
+        <button
+          className="flex min-w-0 flex-1 items-center gap-2 py-2 pr-2 text-left"
+          onClick={() => onOpenMolecule(molecule.id)}
+          type="button"
+        >
+          {reviewState === "alert" ? <span aria-label="Needs attention" className="h-2 w-2 shrink-0 rounded-full bg-alert" /> : null}
+          <span className="min-w-0 flex-1">
+            <span className={`block truncate text-sm ${selected ? "font-semibold" : "font-medium"}`}>
+              {molecule.referenceProductName || molecule.name || "Untitled activity"}
+            </span>
+            <span className="block truncate text-[11px] text-slate/75">
+              {inputCount} input{inputCount === 1 ? "" : "s"}
+            </span>
           </span>
-        </span>
-      </button>
+        </button>
+      </div>
 
-      {isExpanded ? (
-        <div className="mt-1 space-y-1 border-l border-mist pl-1">
+      {expanded ? (
+        <div>
           {children.map((child) => (
-            <MiniTreeNode
+            <TreeRow
               depth={depth + 1}
               expandedIds={expandedIds}
               key={child.id}
@@ -74,6 +117,8 @@ function MiniTreeNode({
               onOpenMolecule={onOpenMolecule}
               project={project}
               selectedMoleculeId={selectedMoleculeId}
+              setExpandedIds={setExpandedIds}
+              visibleIds={visibleIds}
             />
           ))}
         </div>
@@ -87,44 +132,97 @@ export function WorkspaceNavigator({
   selectedMoleculeId,
   onBack,
   onOpenMolecule,
-  children,
 }: WorkspaceNavigatorProps) {
+  const [query, setQuery] = useState("");
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(() => {
+    const initial = getAncestorIds(project, selectedMoleculeId);
+    initial.add(selectedMoleculeId);
+    return initial;
+  });
   const roots = useMemo(() => getTopLevelMolecules(project), [project]);
-  const expandedIds = useMemo(() => {
-    const ids = getAncestorIds(project, selectedMoleculeId);
-    ids.add(selectedMoleculeId);
-    return ids;
-  }, [project, selectedMoleculeId]);
+  const matches = useMemo(() => getHierarchySearchMatches(project, query), [project, query]);
+  const visibleIds = useMemo(() => getHierarchyVisibleIds(project, matches), [matches, project]);
+
+  useEffect(() => {
+    setExpandedIds((current) => {
+      const next = new Set(current);
+      for (const id of getAncestorIds(project, selectedMoleculeId)) {
+        next.add(id);
+      }
+      next.add(selectedMoleculeId);
+      if (query.trim()) {
+        for (const match of matches) {
+          next.add(match.id);
+          for (const id of getAncestorIds(project, match.id)) {
+            next.add(id);
+          }
+        }
+      }
+      return next;
+    });
+  }, [matches, project, query, selectedMoleculeId]);
 
   return (
-    <aside className="overflow-hidden rounded-lg bg-ink text-white shadow-sm">
-      <div className="p-4">
+    <aside className="workspace-rail flex h-full min-h-0 flex-col overflow-hidden rounded-xl border border-mist lg:min-h-[calc(100vh-2rem)]">
+      <div className="border-b border-mist/70 bg-white p-4">
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex min-w-0 items-center gap-3">
+            <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-accent text-xs font-bold tracking-wide text-white shadow-sm">LCI</span>
+            <div className="min-w-0">
+              <div className="truncate text-sm font-semibold text-ink">{project.name}</div>
+              <div className="text-xs text-slate">Project</div>
+            </div>
+          </div>
+          <ThemeToggle />
+        </div>
         <button
-          className="inline-flex h-9 items-center gap-2 rounded-md border border-white/15 bg-white/8 px-3 text-xs font-semibold text-white transition hover:bg-white/12"
+          className="mt-4 inline-flex h-9 items-center gap-2 rounded-md px-2 text-sm font-medium text-slate transition hover:bg-lab hover:text-ink"
           onClick={onBack}
           type="button"
         >
-          <span className="text-base leading-none">&lt;</span>
+          <span aria-hidden="true">←</span>
           Project overview
         </button>
+      </div>
 
-        {children ? <div className="mt-4 border-t border-white/12 pt-4">{children}</div> : null}
+      <div className="border-b border-mist/70 p-3">
+        <label className="relative block">
+          <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate/60">⌕</span>
+          <input
+            aria-label="Search project structure"
+            className="h-9 w-full rounded-md border border-mist bg-lab pl-9 pr-3 text-sm text-ink outline-none transition focus:border-accent focus:bg-white"
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="Find an activity"
+            value={query}
+          />
+        </label>
+      </div>
 
-        <div className="mt-4 border-t border-white/12 pt-4">
-          <div className="text-xs font-semibold uppercase tracking-[0.14em] text-white/50">Inventory tree</div>
-          <div className="mt-3 max-h-[calc(100vh-18rem)] space-y-1 overflow-y-auto rounded-lg bg-lab p-2">
-            {roots.map((root) => (
-              <MiniTreeNode
-                depth={0}
-                expandedIds={expandedIds}
-                key={root.id}
-                molecule={root}
-                onOpenMolecule={onOpenMolecule}
-                project={project}
-                selectedMoleculeId={selectedMoleculeId}
-              />
-            ))}
-          </div>
+      <div className="max-h-72 min-h-0 flex-1 overflow-y-auto px-2 py-3 lg:max-h-none">
+        <div className="mb-2 flex items-center justify-between px-2">
+          <h2 className="text-xs font-semibold uppercase tracking-[0.1em] text-slate">Project structure</h2>
+          <button
+            className="text-[11px] font-medium text-slate transition hover:text-ink"
+            onClick={() => setExpandedIds(new Set([selectedMoleculeId]))}
+            type="button"
+          >
+            Collapse
+          </button>
+        </div>
+        <div className="space-y-0.5">
+          {roots.map((root) => (
+            <TreeRow
+              depth={0}
+              expandedIds={expandedIds}
+              key={root.id}
+              molecule={root}
+              onOpenMolecule={onOpenMolecule}
+              project={project}
+              selectedMoleculeId={selectedMoleculeId}
+              setExpandedIds={setExpandedIds}
+              visibleIds={visibleIds}
+            />
+          ))}
         </div>
       </div>
     </aside>

@@ -81,11 +81,16 @@ export function SupportiveInformationDialog({
 
   return (
     <div className="fixed inset-0 z-[90] flex items-center justify-center bg-ink/35 px-4 py-6 backdrop-blur-sm">
-      <div className="max-h-[88vh] w-full max-w-2xl overflow-y-auto rounded-lg border border-white/70 bg-white p-6 shadow-2xl">
+      <div
+        aria-labelledby="project-report-title"
+        aria-modal="true"
+        className="max-h-[88vh] w-full max-w-2xl overflow-y-auto rounded-xl border border-white/70 bg-white p-6 shadow-2xl"
+        role="dialog"
+      >
         <div className="flex items-start justify-between gap-4">
           <div>
             <div className="section-title">Project dossier</div>
-            <h2 className="mt-2 text-2xl font-semibold text-ink">Attach supportive information?</h2>
+            <h2 className="mt-2 text-2xl font-semibold text-ink" id="project-report-title">Add supporting documents?</h2>
             <p className="mt-2 text-sm leading-6 text-slate">
               Upload optional PDF supporting documents before the dossier is generated. Each PDF is listed in the
               dossier, then appended after a separator page with its file name.
@@ -111,7 +116,7 @@ export function SupportiveInformationDialog({
             type="file"
           />
           <button
-            className="rounded-md bg-ink px-5 py-3 text-sm font-semibold text-white transition hover:bg-accent"
+            className="rounded-md bg-accent px-5 py-3 text-sm font-semibold text-white transition hover:bg-[#1f4b87]"
             disabled={isExporting}
             onClick={() => fileInputRef.current?.click()}
             type="button"
@@ -171,7 +176,7 @@ export function SupportiveInformationDialog({
             Export without attachments
           </button>
           <button
-            className="rounded-md bg-accent px-5 py-3 text-sm font-semibold text-white shadow-lg shadow-accent/20 transition hover:bg-ink disabled:cursor-not-allowed disabled:opacity-60"
+            className="rounded-md bg-accent px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-[#1f4b87] disabled:cursor-not-allowed disabled:opacity-60"
             disabled={isExporting}
             onClick={() => onSubmit(files)}
             type="button"

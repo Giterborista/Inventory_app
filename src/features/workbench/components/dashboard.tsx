@@ -1,15 +1,11 @@
 "use client";
 
-import { type ReactNode, useRef, useState } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 
 import { HierarchyTree } from "@/features/workbench/components/hierarchy-tree";
 import { InterconnectionGraph } from "@/features/workbench/components/interconnection-graph";
-import { ReviewStatusIcon } from "@/features/workbench/components/review-status-icon";
-import { StatusBadge } from "@/features/workbench/components/status-badge";
-import {
-  getHierarchyVisibleIds,
-  getMoleculeInventoryReviewState,
-} from "@/features/workbench/selectors";
+import { ThemeToggle } from "@/features/workbench/components/theme-toggle";
+import { getHierarchyVisibleIds } from "@/features/workbench/selectors";
 import type { MoleculeRecord, ProjectRecord } from "@/features/workbench/types";
 
 type DashboardProps = {
@@ -18,12 +14,13 @@ type DashboardProps = {
   unresolvedMolecules: MoleculeRecord[];
   searchQuery: string;
   isExportingProjectPdf?: boolean;
+  browserDraftRecovered?: boolean;
+  saveStatusLabel: string;
   onSearchQueryChange: (value: string) => void;
   onUpdateProjectName: (value: string) => void;
   onOpenMolecule: (moleculeId: string) => void;
-  onAddInputRow: (moleculeId: string) => void;
   onCreateParentMolecule: (childMoleculeId: string) => void;
-  onCreateMolecule: () => void;
+  onCreateMolecule: (parentMoleculeId?: string) => void;
   onOpenProjectJson: (file: File) => void;
   onOpenProjectReport: () => void;
   onSaveProjectJson: () => void;
@@ -160,7 +157,7 @@ function ViewTab({
   return (
     <button
       className={`inline-flex h-10 min-w-0 items-center justify-center gap-2 rounded-md px-3 text-sm font-semibold transition ${
-        active ? "bg-white text-ink shadow-sm" : "text-white/70 hover:bg-white/10 hover:text-white"
+        active ? "bg-accent-soft text-accent ring-1 ring-accent/25" : "text-slate/80 hover:bg-white/[0.035] hover:text-ink"
       }`}
       onClick={onClick}
       type="button"
@@ -176,20 +173,20 @@ function SidebarAction({
   icon,
   label,
   onClick,
-  primary = false,
+  outlined = false,
 }: {
   disabled?: boolean;
   icon: IconName;
   label: string;
   onClick: () => void;
-  primary?: boolean;
+  outlined?: boolean;
 }) {
   return (
     <button
-      className={`inline-flex h-10 w-full items-center justify-center gap-2 rounded-md px-3 text-sm font-semibold transition active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60 ${
-        primary
-          ? "bg-white text-ink hover:bg-lab"
-          : "border border-white/15 bg-white/8 text-white/86 hover:bg-white/12 hover:text-white"
+      className={`inline-flex h-10 w-full items-center justify-start gap-3 rounded-md px-3 text-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-60 ${
+        outlined
+          ? "border border-mist/60 text-ink hover:bg-white/[0.035]"
+          : "text-slate/75 hover:bg-white/[0.035] hover:text-ink"
       }`}
       disabled={disabled}
       onClick={onClick}
@@ -207,10 +204,11 @@ export function Dashboard({
   unresolvedMolecules,
   searchQuery,
   isExportingProjectPdf = false,
+  browserDraftRecovered = false,
+  saveStatusLabel,
   onSearchQueryChange,
   onUpdateProjectName,
   onOpenMolecule,
-  onAddInputRow,
   onCreateParentMolecule,
   onCreateMolecule,
   onOpenProjectJson,
@@ -220,115 +218,122 @@ export function Dashboard({
 }: DashboardProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [activeView, setActiveView] = useState<"hierarchy" | "graph">("hierarchy");
+  const [selectedStructureMoleculeId, setSelectedStructureMoleculeId] = useState("");
+  const [showAllIngredients, setShowAllIngredients] = useState(false);
   const visibleIds = getHierarchyVisibleIds(project, filteredMolecules);
-  const hasSearch = Boolean(searchQuery.trim());
-
+  const hasActivities = project.molecules.length > 0;
+  useEffect(() => {
+    if (selectedStructureMoleculeId && !project.molecules.some((molecule) => molecule.id === selectedStructureMoleculeId)) {
+      setSelectedStructureMoleculeId("");
+    }
+  }, [project.molecules, selectedStructureMoleculeId]);
   return (
-    <main className="min-h-screen px-4 py-4 text-ink sm:px-6">
-      <div className="mx-auto grid max-w-[112rem] gap-4 xl:grid-cols-[16rem_minmax(0,1fr)]">
-        <aside className="h-fit rounded-lg bg-ink p-3 text-white shadow-sm xl:sticky xl:top-4">
-          <div className="space-y-2">
-            <div className="grid grid-cols-2 gap-2">
-              <SidebarAction icon="folder" label="Open" onClick={() => fileInputRef.current?.click()} />
-              <SidebarAction icon="save" label="Save" onClick={onSaveProjectJson} />
+    <main className="min-h-screen bg-transparent px-3 py-3 text-ink sm:px-4 sm:py-4">
+      <div className="mx-auto grid max-w-[112rem] gap-4 xl:grid-cols-[14.5rem_minmax(0,1fr)]">
+        <aside className="theme-sidebar h-fit overflow-hidden rounded-xl border border-mist/40 xl:sticky xl:top-4 xl:h-[calc(100vh-2rem)] xl:self-start">
+          <div className="border-b border-mist/70 p-4">
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex min-w-0 items-center gap-3">
+                <span className="grid h-8 w-8 shrink-0 place-items-center rounded-md bg-accent text-[11px] font-bold tracking-wide text-white">LCI</span>
+                <div className="min-w-0">
+                  <div className="text-sm font-semibold text-ink">Inventory Builder</div>
+                </div>
+              </div>
+              <ThemeToggle />
             </div>
-            <div className="grid grid-cols-2 gap-2">
-              <SidebarAction
-                disabled={isExportingProjectPdf}
-                icon="file"
-                label={isExportingProjectPdf ? "PDF..." : "Dossier"}
-                onClick={onOpenProjectReport}
-              />
-              <SidebarAction icon="layers" label="New" onClick={onNewProject} />
+          </div>
+          <div className="p-3">
+            <div className="space-y-1">
+              <SidebarAction icon="folder" label="Open project file" onClick={() => fileInputRef.current?.click()} outlined />
+              {hasActivities ? (
+                <>
+                  <SidebarAction icon="save" label="Download project" onClick={onSaveProjectJson} />
+                  <SidebarAction
+                    disabled={isExportingProjectPdf}
+                    icon="file"
+                    label={isExportingProjectPdf ? "Creating report..." : "Create PDF report"}
+                    onClick={onOpenProjectReport}
+                  />
+                </>
+              ) : null}
+              <SidebarAction icon="layers" label="New project" onClick={onNewProject} />
             </div>
           </div>
 
-          <label className="relative mt-4 block w-full">
-            <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-white/50">
+          <div className="mx-3 px-3 py-2 text-[11px] leading-5 text-slate/70">
+            {saveStatusLabel}
+          </div>
+
+          {hasActivities ? <label className="relative mx-3 mt-4 block">
+            <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate/60">
               <Icon name="search" />
             </span>
             <input
-              className="h-10 w-full rounded-md border border-white/12 bg-white/10 px-10 text-sm text-white outline-none transition placeholder:text-white/45 focus:border-white/35"
+              className="h-10 w-full rounded-md border border-mist/60 bg-transparent px-10 text-sm text-ink outline-none transition focus:border-slate focus:bg-white/5"
               onChange={(event) => onSearchQueryChange(event.target.value)}
               placeholder="Search activities"
               value={searchQuery}
             />
-          </label>
-
-          <div className="mt-4 grid grid-cols-2 gap-2 rounded-md bg-white/8 p-1">
-            <ViewTab active={activeView === "hierarchy"} icon="tree" label="Tree" onClick={() => setActiveView("hierarchy")} />
-            <ViewTab active={activeView === "graph"} icon="graph" label="Graph" onClick={() => setActiveView("graph")} />
-          </div>
+          </label> : null}
 
         </aside>
 
-        <div className="min-w-0 space-y-4">
-          <header className="rounded-lg border border-mist bg-white p-4 shadow-sm">
-            <div className="flex flex-wrap items-center justify-between gap-4">
+        <div className="min-w-0">
+          <header className="border-b border-mist/60 px-1 pb-3 pt-1 sm:px-2">
+            <div className="flex flex-wrap items-start justify-between gap-5">
               <label className="min-w-0 flex-1">
-                <span className="mb-1 block text-xs font-semibold text-slate">Project</span>
                 <input
-                  className="w-full rounded-md border border-transparent bg-transparent py-1 text-2xl font-semibold leading-tight text-ink outline-none transition focus:border-mist focus:bg-lab focus:px-3"
+                  aria-label="Project name"
+                  className="w-full max-w-4xl rounded-sm border border-transparent bg-transparent px-1 py-1 text-lg font-semibold leading-tight text-ink outline-none transition hover:border-mist/60 focus:border-slate sm:text-xl"
                   onChange={(event) => onUpdateProjectName(event.target.value)}
                   value={project.name}
                 />
               </label>
-              {unresolvedMolecules.length > 0 ? (
-                <div className="inline-flex h-10 items-center gap-2 rounded-md border border-amber-300 bg-amber-50 px-3 text-amber-800">
-                  <Icon name="alert" />
-                  <span className="text-sm font-semibold">{unresolvedMolecules.length}</span>
-                  <span className="text-xs font-semibold">review</span>
-                </div>
-              ) : null}
+            </div>
+            <div className="mt-1 flex flex-wrap items-center gap-x-5 gap-y-2 px-1 text-xs text-slate">
+              <span><strong className="font-semibold text-ink">{project.molecules.length}</strong> activities</span>
+              {browserDraftRecovered ? <span className="text-sea">Previous work recovered</span> : null}
             </div>
           </header>
 
-          <section className="min-w-0">
+          <section className="mt-3 min-w-0 overflow-hidden rounded-xl border border-mist/60 bg-white">
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-mist/60 px-4 py-4 sm:px-5">
+              <div>
+                <h2 className="text-lg font-semibold text-ink">Project structure</h2>
+                <p className="mt-0.5 text-sm text-slate">Build and navigate the activity hierarchy.</p>
+              </div>
+              {hasActivities ? <div className="flex flex-wrap items-center gap-2">
+                <div aria-label="Structure view" className="flex items-center gap-1 rounded-lg border border-mist/60 bg-lab p-1">
+                  <ViewTab active={activeView === "hierarchy"} icon="tree" label="Tree" onClick={() => setActiveView("hierarchy")} />
+                  <ViewTab active={activeView === "graph"} icon="graph" label="Graph" onClick={() => setActiveView("graph")} />
+                </div>
+                <label className="inline-flex h-10 items-center gap-2 rounded-md border border-mist/60 px-3 text-xs font-semibold text-slate transition hover:text-ink">
+                  <input checked={showAllIngredients} className="h-4 w-4 rounded border-mist text-accent focus:ring-accent" onChange={(event) => setShowAllIngredients(event.target.checked)} type="checkbox" />
+                  Show inputs
+                </label>
+                {selectedStructureMoleculeId ? (
+                  <button className="inline-flex h-10 items-center rounded-md bg-accent px-4 text-xs font-semibold text-white transition hover:bg-[#ad4141]" onClick={() => onCreateMolecule(selectedStructureMoleculeId)} type="button">
+                    + Add child activity
+                  </button>
+                ) : null}
+              </div> : null}
+            </div>
             {activeView === "hierarchy" ? (
               <HierarchyTree
-                onAddInputRow={onAddInputRow}
                 onCreateParentMolecule={onCreateParentMolecule}
-                onCreateTopLevelMolecule={onCreateMolecule}
+                onCreateTopLevelMolecule={() => onCreateMolecule()}
                 onOpenMolecule={onOpenMolecule}
+                onSelectMolecule={setSelectedStructureMoleculeId}
                 project={project}
+                selectedMoleculeId={selectedStructureMoleculeId}
+                showAllIngredients={showAllIngredients}
                 visibleIds={visibleIds}
               />
             ) : (
-              <InterconnectionGraph onOpenMolecule={onOpenMolecule} project={project} visibleIds={visibleIds} />
+              <InterconnectionGraph onOpenMolecule={onOpenMolecule} project={project} showInputs={showAllIngredients} visibleIds={visibleIds} />
             )}
           </section>
 
-            {hasSearch ? (
-              <section className="panel-surface rounded-lg border border-white/80 p-4">
-                <div className="flex items-center justify-between gap-3">
-                  <h2 className="text-lg font-semibold text-ink">Search results</h2>
-                  <span className="text-sm font-medium text-slate">{filteredMolecules.length} found</span>
-                </div>
-                {filteredMolecules.length > 0 ? (
-                  <div className="mt-4 grid gap-3 md:grid-cols-2">
-                    {filteredMolecules.map((molecule) => (
-                      <button
-                        key={molecule.id}
-                        className="rounded-lg border border-mist/80 bg-white px-4 py-3 text-left shadow-sm transition hover:-translate-y-0.5 hover:border-accent"
-                        onClick={() => onOpenMolecule(molecule.id)}
-                        type="button"
-                      >
-                        <div className="font-semibold text-ink">{molecule.name}</div>
-                        <div className="mt-1 text-xs text-slate">{molecule.cas || molecule.iupac || "No identity detail yet"}</div>
-                        <div className="mt-3 flex flex-wrap gap-2">
-                          <ReviewStatusIcon state={getMoleculeInventoryReviewState(project, molecule)} />
-                          {molecule.placeholder ? <StatusBadge label="Placeholder record" tone="ink" /> : null}
-                        </div>
-                      </button>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="mt-4 rounded-lg border border-dashed border-mist bg-lab px-4 py-6 text-sm font-medium text-slate">
-                    No matching activities.
-                  </div>
-                )}
-              </section>
-            ) : null}
         </div>
 
         <input

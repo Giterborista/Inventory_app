@@ -5,45 +5,31 @@ import type { EcoinventDatasetMatch } from "@/features/workbench/types";
 const ECOQUERY_BASE_URL = "https://api.ecoquery.ecoinvent.org";
 const ECOQUERY_VERSION = "3.12";
 const ECOQUERY_SYSTEM_MODEL = "cutoff";
+const PAGE_SIZE = 100;
 
-type EcoQueryDataset = {
-  id?: string | number;
-  uuid?: string;
-  dataset_uuid?: string;
-  datasetUuid?: string;
-  geography?: string;
-  url?: string;
-};
-
-type EcoQueryProduct = {
-  name?: string;
-  unit?: string;
-  datasets?: EcoQueryDataset[];
-};
-
-type EcoQueryActivity = {
-  name?: string;
-  activity_type?: string;
-  sectors?: string[];
-  products?: EcoQueryProduct[];
-};
-
+type FacetItem = { name?: string; count?: number };
+type EcoQueryDataset = { id?: string | number; uuid?: string; dataset_uuid?: string; datasetUuid?: string; geography?: string; url?: string };
+type EcoQueryProduct = { name?: string; unit?: string; datasets?: EcoQueryDataset[] };
+type EcoQueryActivity = { name?: string; activity_type?: string; sectors?: string[]; products?: EcoQueryProduct[] };
 type EcoQuerySearchResponse = {
   activities?: EcoQueryActivity[];
+  total_hits?: number;
+  filters?: {
+    sectors?: FacetItem[];
+    sector?: FacetItem[];
+    isic_sections?: FacetItem[];
+    isic_classes?: FacetItem[];
+    activity_types?: FacetItem[];
+  };
 };
-
 type EcoQueryMetadataResponse = {
   activity_name?: string;
   reference_product?: string;
   unit?: string;
   sector?: string;
   has_access?: boolean;
-  geography?: {
-    short_name?: string;
-    long_name?: string;
-  };
+  geography?: { short_name?: string; long_name?: string };
 };
-
 type EcoQueryDocumentationResponse = {
   activity_description?: {
     name?: string;
@@ -52,194 +38,226 @@ type EcoQueryDocumentationResponse = {
     synonyms?: string[];
     included_activities_start?: string;
     included_activities_end?: string;
-    geography?: {
-      short_name?: string;
-      long_name?: string;
-    };
+    geography?: { short_name?: string; long_name?: string };
   };
 };
 
-type SearchCandidate = {
+type ManualVariant = {
   datasetId: string;
   datasetUuid: string;
   datasetUrl: string;
+  geography: string;
+  exactName: string;
+};
+
+type ManualFamily = {
+  familyKey: string;
+  activityName: string;
+  activityType: string;
+  referenceProduct: string;
+  unit: string;
+  sectors: string[];
+  variants: ManualVariant[];
+};
+
+function asString(value: unknown) {
+  if (typeof value === "string") return value;
+  if (typeof value === "number" && Number.isFinite(value)) return String(value);
+  return "";
+}
+
+function stringArray(value: unknown) {
+  return Array.isArray(value) ? value.map(asString).map((item) => item.trim()).filter(Boolean) : [];
+}
+
+function extractUuid(value: unknown) {
+  return asString(value).match(/[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}/i)?.[0] ?? "";
+}
+
+function normalizeText(value: string) {
+  return value.toLocaleLowerCase().replace(/\s+/g, " ").trim();
+}
+
+function normalizeGeography(value: string) {
+  const normalized = value.trim();
+  return normalized.match(/\(([A-Z0-9-]+)\)$/i)?.[1] ?? normalized;
+}
+
+function exactName(activityName: string, referenceProduct: string, geography: string) {
+  return `${activityName}${geography ? ` {${normalizeGeography(geography)}}` : ""}${referenceProduct ? ` | ${referenceProduct}` : ""} | Cut-off, U`;
+}
+
+function retryableStatus(status: number) {
+  return status === 429 || status === 408 || status >= 500;
+}
+
+function wait(milliseconds: number) {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
+
+async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const response = await fetch(url, { ...init, headers: { "content-type": "application/json", ...(init?.headers ?? {}) } });
+    if (response.ok) return (await response.json()) as T;
+    if (retryableStatus(response.status) && attempt < 2) {
+      await response.arrayBuffer();
+      await wait(750 * (2 ** attempt));
+      continue;
+    }
+    throw new Error(`ecoQuery request failed with ${response.status}${response.status === 429 ? " after automatic retries" : ""}.`);
+  }
+  throw new Error("ecoQuery request failed after automatic retries.");
+}
+
+function facetValues(items: FacetItem[] | undefined) {
+  return (items ?? [])
+    .map((item) => ({ name: asString(item.name), count: Number(item.count ?? 0) }))
+    .filter((item) => item.name)
+    .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
+}
+
+function groupFamilies(response: EcoQuerySearchResponse) {
+  const families = new Map<string, ManualFamily>();
+  for (const activity of response.activities ?? []) {
+    for (const product of activity.products ?? []) {
+      const activityName = activity.name ?? "";
+      const activityType = activity.activity_type ?? "";
+      const referenceProduct = product.name ?? "";
+      const unit = product.unit ?? "";
+      const familyKey = [activityName, referenceProduct, unit, activityType].map(normalizeText).join("|");
+      const family = families.get(familyKey) ?? {
+        familyKey,
+        activityName,
+        activityType,
+        referenceProduct,
+        unit,
+        sectors: activity.sectors ?? [],
+        variants: [],
+      };
+      const knownIds = new Set(family.variants.map((variant) => variant.datasetId));
+      for (const dataset of product.datasets ?? []) {
+        const datasetId = asString(dataset.id);
+        if (!datasetId || knownIds.has(datasetId)) continue;
+        const geography = dataset.geography ?? "";
+        family.variants.push({
+          datasetId,
+          datasetUuid: extractUuid(dataset.uuid) || extractUuid(dataset.dataset_uuid) || extractUuid(dataset.datasetUuid) || extractUuid(dataset.url),
+          datasetUrl: dataset.url ?? "",
+          geography,
+          exactName: exactName(activityName, referenceProduct, geography),
+        });
+      }
+      family.variants.sort((a, b) => a.geography.localeCompare(b.geography));
+      families.set(familyKey, family);
+    }
+  }
+  return [...families.values()];
+}
+
+async function selectDataset(datasetId: string, fallback: {
+  query: string;
   activityName: string;
   activityType: string;
   referenceProduct: string;
   geography: string;
   unit: string;
   sector: string;
-};
-
-function asString(value: unknown) {
-  if (typeof value === "string") {
-    return value;
-  }
-  if (typeof value === "number" && Number.isFinite(value)) {
-    return String(value);
-  }
-  return "";
-}
-
-function extractUuid(value: unknown) {
-  const text = asString(value);
-  const match = text.match(/[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}/i);
-  return match?.[0] ?? "";
-}
-
-function extractDatasetUuid(dataset: EcoQueryDataset) {
-  return (
-    extractUuid(dataset.uuid) ||
-    extractUuid(dataset.dataset_uuid) ||
-    extractUuid(dataset.datasetUuid) ||
-    extractUuid(dataset.url)
-  );
-}
-
-function normalizeGeographyLabel(value: string) {
-  const normalized = value.trim();
-  const codeMatch = normalized.match(/\(([A-Z0-9-]+)\)$/);
-  return codeMatch?.[1] ?? normalized;
-}
-
-function buildExactName(metadata: EcoQueryMetadataResponse, fallback: SearchCandidate) {
-  const activityName = asString(metadata.activity_name) || fallback.activityName;
-  const referenceProduct = asString(metadata.reference_product) || fallback.referenceProduct;
-  const geography = normalizeGeographyLabel(metadata.geography?.short_name || fallback.geography);
-  const systemModelLabel = ECOQUERY_SYSTEM_MODEL === "cutoff" ? "Cut-off, U" : ECOQUERY_SYSTEM_MODEL;
-
-  return [activityName, geography ? `{${geography}}` : "", referenceProduct ? `| ${referenceProduct}` : "", `| ${systemModelLabel}`]
-    .filter(Boolean)
-    .join(" ")
-    .replace(/\s+\|/g, " |");
-}
-
-async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(url, {
-    ...init,
-    headers: {
-      "content-type": "application/json",
-      ...(init?.headers ?? {}),
-    },
-  });
-
-  if (!response.ok) {
-    throw new Error(`ecoQuery request failed with ${response.status}`);
-  }
-
-  return (await response.json()) as T;
-}
-
-async function enrichCandidate(candidate: SearchCandidate, searchQuery: string): Promise<EcoinventDatasetMatch> {
-  const searchParams = new URLSearchParams({
-    dataset_id: candidate.datasetId,
-    version: ECOQUERY_VERSION,
-    system_model: ECOQUERY_SYSTEM_MODEL,
-  });
-
+  datasetUuid: string;
+  datasetUrl: string;
+}): Promise<EcoinventDatasetMatch> {
+  const params = new URLSearchParams({ dataset_id: datasetId, version: ECOQUERY_VERSION, system_model: ECOQUERY_SYSTEM_MODEL });
   const [metadataResult, documentationResult] = await Promise.allSettled([
-    fetchJson<EcoQueryMetadataResponse>(`${ECOQUERY_BASE_URL}/spold?${searchParams.toString()}`),
-    fetchJson<EcoQueryDocumentationResponse>(`${ECOQUERY_BASE_URL}/spold/documentation?${searchParams.toString()}`),
+    fetchJson<EcoQueryMetadataResponse>(`${ECOQUERY_BASE_URL}/spold?${params}`),
+    fetchJson<EcoQueryDocumentationResponse>(`${ECOQUERY_BASE_URL}/spold/documentation?${params}`),
   ]);
-
   const metadata = metadataResult.status === "fulfilled" ? metadataResult.value : {};
-  const documentation = documentationResult.status === "fulfilled" ? documentationResult.value : {};
-  const activityDescription = documentation.activity_description ?? {};
-  const geography = normalizeGeographyLabel(
-    metadata.geography?.short_name ||
-    activityDescription.geography?.short_name ||
-    candidate.geography,
-  );
-
+  const documentation = documentationResult.status === "fulfilled" ? documentationResult.value.activity_description ?? {} : {};
+  const activityName = metadata.activity_name || documentation.name || fallback.activityName;
+  const referenceProduct = metadata.reference_product || fallback.referenceProduct;
+  const geography = metadata.geography?.short_name || documentation.geography?.short_name || fallback.geography;
   return {
-    datasetId: candidate.datasetId,
-    datasetUuid: candidate.datasetUuid,
-    searchQuery,
-    activityName: asString(metadata.activity_name) || asString(activityDescription.name) || candidate.activityName,
-    activityType: candidate.activityType,
-    referenceProduct: asString(metadata.reference_product) || candidate.referenceProduct,
-    geography,
-    unit: asString(metadata.unit) || candidate.unit,
-    sector: asString(metadata.sector) || candidate.sector,
-    exactName: buildExactName(metadata, candidate),
-    datasetUrl: candidate.datasetUrl,
+    datasetId,
+    datasetUuid: fallback.datasetUuid,
+    searchQuery: fallback.query,
+    activityName,
+    activityType: fallback.activityType,
+    referenceProduct,
+    geography: normalizeGeography(geography),
+    unit: metadata.unit || fallback.unit,
+    sector: metadata.sector || fallback.sector,
+    exactName: exactName(activityName, referenceProduct, geography),
+    datasetUrl: fallback.datasetUrl,
     hasAccess: Boolean(metadata.has_access),
-    generalComment: asString(activityDescription.general_comment),
-    productInformation: asString(activityDescription.product_information),
-    includedActivitiesStart: asString(activityDescription.included_activities_start),
-    includedActivitiesEnd: asString(activityDescription.included_activities_end),
-    synonyms: Array.isArray(activityDescription.synonyms) ? activityDescription.synonyms.filter((item) => typeof item === "string") : [],
+    generalComment: documentation.general_comment ?? "",
+    productInformation: documentation.product_information ?? "",
+    includedActivitiesStart: documentation.included_activities_start ?? "",
+    includedActivitiesEnd: documentation.included_activities_end ?? "",
+    synonyms: documentation.synonyms ?? [],
     version: ECOQUERY_VERSION,
     systemModel: ECOQUERY_SYSTEM_MODEL,
   };
 }
 
-function flattenCandidates(searchResponse: EcoQuerySearchResponse) {
-  const candidates: SearchCandidate[] = [];
-
-  for (const activity of searchResponse.activities ?? []) {
-    for (const product of activity.products ?? []) {
-      for (const dataset of product.datasets ?? []) {
-        const datasetId = asString(dataset.id);
-        if (!datasetId) {
-          continue;
-        }
-
-        candidates.push({
-          datasetId,
-          datasetUuid: extractDatasetUuid(dataset),
-          datasetUrl: dataset.url ?? "",
-          activityName: activity.name ?? "",
-          activityType: activity.activity_type ?? "",
-          referenceProduct: product.name ?? "",
-          geography: dataset.geography ?? "",
-          unit: product.unit ?? "",
-          sector: activity.sectors?.join(", ") ?? "",
-        });
-      }
-    }
-  }
-
-  return candidates;
-}
-
 export async function POST(request: Request) {
   try {
-    const body = (await request.json()) as { query?: string; limit?: number };
-    const query = asString(body.query).trim();
-    const requestedLimit = typeof body.limit === "number" && Number.isFinite(body.limit) ? body.limit : 60;
-    const limit = Math.min(Math.max(requestedLimit, 1), 60);
-
-    if (!query) {
-      return NextResponse.json({ results: [] });
+    const body = (await request.json()) as Record<string, unknown>;
+    const action = asString(body.action) || "search";
+    if (action === "select") {
+      const datasetId = asString(body.datasetId);
+      if (!datasetId) return NextResponse.json({ error: "A dataset ID is required." }, { status: 400 });
+      const match = await selectDataset(datasetId, {
+        query: asString(body.query),
+        activityName: asString(body.activityName),
+        activityType: asString(body.activityType),
+        referenceProduct: asString(body.referenceProduct),
+        geography: asString(body.geography),
+        unit: asString(body.unit),
+        sector: asString(body.sector),
+        datasetUuid: asString(body.datasetUuid),
+        datasetUrl: asString(body.datasetUrl),
+      });
+      return NextResponse.json({ match });
     }
 
-    const searchResponse = await fetchJson<EcoQuerySearchResponse>(
-      `${ECOQUERY_BASE_URL}/search/${ECOQUERY_VERSION}/${ECOQUERY_SYSTEM_MODEL}`,
-      {
-        method: "POST",
-        body: JSON.stringify({
-          from_: 0,
-          limit: 60,
-          query,
-          filters: {
-            geography: [],
-            isic_section: [],
-            isic_class: [],
-            activity_type: [],
-            sector: [],
-          },
-          search_by: "activity",
-        }),
+    const query = asString(body.query).trim();
+    const from = Math.max(0, Number(body.from) || 0);
+    const activityTypes = stringArray(body.activityTypes);
+    if (!("activityTypes" in body) && body.marketOnly !== false && action !== "facets") activityTypes.push("MARKET_ACTIVITY");
+    const sectors = stringArray(body.sectors);
+    const isicSections = stringArray(body.isicSections);
+    const isicClasses = stringArray(body.isicClasses);
+    const response = await fetchJson<EcoQuerySearchResponse>(`${ECOQUERY_BASE_URL}/search/${ECOQUERY_VERSION}/${ECOQUERY_SYSTEM_MODEL}`, {
+      method: "POST",
+      body: JSON.stringify({
+        from_: from,
+        limit: PAGE_SIZE,
+        query,
+        filters: {
+          geography: [],
+          isic_section: isicSections,
+          isic_class: isicClasses,
+          activity_type: activityTypes,
+          sector: sectors,
+        },
+        search_by: "activity",
+      }),
+    });
+    const activitiesOnPage = response.activities?.length ?? 0;
+    return NextResponse.json({
+      families: action === "facets" ? [] : groupFamilies(response),
+      totalHits: Number(response.total_hits ?? activitiesOnPage),
+      nextFrom: activitiesOnPage ? from + activitiesOnPage : null,
+      facets: {
+        sectors: facetValues(response.filters?.sectors ?? response.filters?.sector),
+        activityTypes: facetValues(response.filters?.activity_types),
+        isicSections: facetValues(response.filters?.isic_sections),
+        isicClasses: facetValues(response.filters?.isic_classes),
       },
-    );
-
-    const candidates = flattenCandidates(searchResponse).slice(0, limit);
-    const results = await Promise.all(candidates.map((candidate) => enrichCandidate(candidate, query)));
-
-    return NextResponse.json({ results });
+      appliedFilters: { activityTypes, sectors, isicSections, isicClasses },
+      version: ECOQUERY_VERSION,
+      systemModel: ECOQUERY_SYSTEM_MODEL,
+    });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "ecoQuery search failed.";
-    return NextResponse.json({ error: message }, { status: 502 });
+    return NextResponse.json({ error: error instanceof Error ? error.message : "ecoQuery search failed." }, { status: 502 });
   }
 }

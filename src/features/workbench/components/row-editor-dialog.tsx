@@ -1,12 +1,15 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 
 import { EcoinventLookupDialog } from "@/features/workbench/components/ecoinvent-lookup-dialog";
+import { CreateMoleculeDialog } from "@/features/workbench/components/create-molecule-dialog";
 import { PubChemLookupDialog } from "@/features/workbench/components/pubchem-lookup-dialog";
 import { resolutionLabels } from "@/features/workbench/display";
 import { makeClientId } from "@/features/workbench/state-utils";
 import { getCuratedPubChemSynonymText } from "@/features/workbench/pubchem";
+import { getAncestorIds } from "@/features/workbench/selectors";
 import type {
   EcoinventDatasetMatch,
   MoleculeDraft,
@@ -25,13 +28,16 @@ type RowEditorDialogProps = {
   currentMolecule: MoleculeRecord;
   section: ReconstructionSection;
   initialRow?: ReconstructionRow | null;
+  initialPanel?: "details" | "dataset" | "notes";
   onClose: () => void;
   onSave: (values: Partial<ReconstructionRow> & { section: ReconstructionSection }, rowId?: string) => void;
   onCreateChildFromRow: (
     rowId: string,
     values: Partial<ReconstructionRow> & { section: ReconstructionSection },
     draft: Partial<MoleculeDraft>,
-  ) => void;
+  ) => string;
+  onOpenMolecule: (moleculeId: string) => void;
+  onImportActivityFromFile: (file: File, rowId: string, values: Partial<ReconstructionRow> & { section: ReconstructionSection }) => Promise<void>;
 };
 
 type RowDraft = {
@@ -42,6 +48,10 @@ type RowDraft = {
   reactionValue: string;
   cleaningValue: string;
   totalValue: string;
+  uncertaintyEnabled: boolean;
+  minimumValue: string;
+  maximumValue: string;
+  amountSource: ReconstructionRow["amountSource"];
   unit: string;
   totalScaledValue: string;
   scaledUnit: string;
@@ -87,9 +97,13 @@ function buildDraft(
     reactionValue: row?.reactionValue ?? "",
     cleaningValue: row?.cleaningValue ?? "",
     totalValue: row?.totalValue || fallbackAmount,
-    unit: row?.unit ?? "kg",
+    uncertaintyEnabled: row?.uncertaintyEnabled ?? false,
+    minimumValue: row?.minimumValue ?? "",
+    maximumValue: row?.maximumValue ?? "",
+    amountSource: row?.amountSource ?? "",
+    unit: row?.unit ?? "",
     totalScaledValue: row?.totalScaledValue ?? "",
-    scaledUnit: row?.scaledUnit ?? row?.unit ?? "kg",
+    scaledUnit: row?.scaledUnit ?? row?.unit ?? "",
     cas: row?.cas ?? "",
     iupac: row?.iupac ?? "",
     smiles: row?.smiles ?? "",
@@ -160,49 +174,32 @@ function convertMassValueToKg(value: string, unit: string) {
   return null;
 }
 
-function StepPill({
-  index,
+function EditorSectionTab({
   label,
-  complete,
   active,
-  locked,
+  completed,
+  index,
+  status,
+  onClick,
 }: {
-  index: number;
   label: string;
-  complete: boolean;
   active: boolean;
-  locked: boolean;
+  completed: boolean;
+  index: number;
+  status?: string;
+  onClick: () => void;
 }) {
   return (
-    <div
-      className={`flex items-center gap-3 rounded-lg border px-3 py-3 text-sm transition ${
-        complete
-          ? "border-accent/25 bg-accent/10 text-accent"
-          : active
-            ? "border-ink/20 bg-white text-ink shadow-sm"
-            : locked
-              ? "border-mist bg-lab text-slate/55"
-              : "border-mist bg-white text-slate"
+    <button
+      className={`flex w-full min-w-[10rem] items-center gap-3 rounded-sm border px-3 py-3 text-left text-sm transition lg:min-w-0 ${
+        active ? "border-slate/60 bg-white/5 text-ink" : "border-transparent text-slate hover:bg-white/[0.035] hover:text-ink"
       }`}
+      onClick={onClick}
+      type="button"
     >
-      <span
-        className={`grid h-7 w-7 shrink-0 place-items-center rounded-md text-xs font-semibold ${
-          complete
-            ? "bg-accent text-white"
-            : active
-              ? "bg-ink text-white"
-              : "bg-white text-slate ring-1 ring-mist"
-        }`}
-      >
-        {complete ? "OK" : index}
-      </span>
-      <span className="min-w-0">
-        <span className="block font-semibold">{label}</span>
-        <span className="mt-0.5 block text-[11px] text-slate">
-          {complete ? "Complete" : locked ? "Later" : active ? "Now" : "Optional"}
-        </span>
-      </span>
-    </div>
+      <span className={`grid h-6 w-6 shrink-0 place-items-center rounded-full border text-[11px] font-semibold ${completed ? "border-slate text-ink" : "border-mist text-slate"}`}>{completed ? "✓" : index}</span>
+      <span className="min-w-0 flex-1"><span className="block font-semibold">{label}</span>{status ? <span className="mt-0.5 block text-[10px] font-normal text-slate">{status}</span> : null}</span>
+    </button>
   );
 }
 
@@ -212,15 +209,27 @@ export function RowEditorDialog({
   currentMolecule,
   section,
   initialRow,
+  initialPanel = "details",
   onClose,
   onSave,
   onCreateChildFromRow,
+  onOpenMolecule,
+  onImportActivityFromFile,
 }: RowEditorDialogProps) {
   const [draft, setDraft] = useState<RowDraft>(buildDraft(section, initialRow));
   const [searchQuery, setSearchQuery] = useState("");
   const [reuseSearchOpen, setReuseSearchOpen] = useState(false);
   const [lookupOpen, setLookupOpen] = useState(false);
   const [ecoinventLookupOpen, setEcoinventLookupOpen] = useState(false);
+  const [activePanel, setActivePanel] = useState<"details" | "dataset" | "notes">("details");
+  const [linkedActivityNotice, setLinkedActivityNotice] = useState<string | null>(null);
+  const [createdRowId, setCreatedRowId] = useState<string | null>(null);
+  const [nameTipOpen, setNameTipOpen] = useState(false);
+  const [uncertaintyHelpOpen, setUncertaintyHelpOpen] = useState(false);
+  const [createLinkedActivityOpen, setCreateLinkedActivityOpen] = useState(false);
+  const [importingActivity, setImportingActivity] = useState(false);
+  const [importActivityError, setImportActivityError] = useState("");
+  const importActivityInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (!open) {
@@ -230,13 +239,22 @@ export function RowEditorDialog({
     setSearchQuery("");
     setReuseSearchOpen(false);
     setEcoinventLookupOpen(false);
-  }, [initialRow, open, section]);
+    setActivePanel(initialPanel);
+    setLinkedActivityNotice(null);
+    setCreatedRowId(null);
+    setNameTipOpen(false);
+    setUncertaintyHelpOpen(false);
+    setCreateLinkedActivityOpen(false);
+    setImportingActivity(false);
+    setImportActivityError("");
+  }, [initialPanel, initialRow, open, section]);
 
   const searchResults = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
+    const ancestorIds = getAncestorIds(project, currentMolecule.id);
 
     const moleculeMatches: ProjectItemResult[] = project.molecules
-      .filter((molecule) => molecule.id !== currentMolecule.id)
+      .filter((molecule) => molecule.id !== currentMolecule.id && !ancestorIds.has(molecule.id))
       .filter((molecule) => {
         if (!query) {
           return true;
@@ -293,7 +311,7 @@ export function RowEditorDialog({
     );
 
     return [...moleculeMatches, ...dedupedRows].slice(0, 12);
-  }, [currentMolecule.id, initialRow?.id, project.molecules, searchQuery]);
+  }, [currentMolecule.id, initialRow?.id, project, searchQuery]);
 
   const selectedMolecule = project.molecules.find((molecule) => molecule.id === draft.linkedMoleculeId) ?? null;
   const referenceProductName = currentMolecule.referenceProductName || currentMolecule.name;
@@ -327,39 +345,35 @@ export function RowEditorDialog({
   const identityComplete = draft.name.trim().length > 0;
   const parsedAmount = parseNumeric(draft.totalValue);
   const amountInvalid = draft.totalValue.trim().length > 0 && parsedAmount === null;
+  const parsedMinimum = parseNumeric(draft.minimumValue);
+  const parsedMaximum = parseNumeric(draft.maximumValue);
+  const uncertaintyInvalid =
+    draft.uncertaintyEnabled &&
+    (parsedMinimum === null || parsedMaximum === null || parsedMinimum > parsedMaximum);
+  const referenceAmountInvalid = isReferenceOutputRow && (parsedAmount === null || parsedAmount <= 0);
   const unitComplete = draft.unit.trim().length > 0;
-  const requiredDetailsComplete = identityComplete && unitComplete && !amountInvalid;
-  const ecoinventDecisionComplete =
-    isReferenceOutputRow ||
-    isLinkedProjectItem ||
-    draft.ecoinventStatus === "present" ||
-    draft.ecoinventStatus === "missing";
+  const requiredDetailsComplete = identityComplete && unitComplete && !amountInvalid && !referenceAmountInvalid && !uncertaintyInvalid;
   const hasEcoinventMatch = Boolean(draft.ecoinventDatasetId || draft.ecoinventDatasetUuid);
   const userUnit = draft.unit.trim();
   const ecoinventUnit = draft.ecoinventUnit.trim();
   const hasUnitMismatch =
     Boolean(userUnit && ecoinventUnit) && userUnit.toLowerCase() !== ecoinventUnit.toLowerCase();
-  const canEditEcoinvent = identityComplete && !isReferenceOutputRow && !isLinkedProjectItem;
+  const canEditEcoinvent = identityComplete && !isReferenceOutputRow;
   const canEditDocumentation = identityComplete;
   const canSave = requiredDetailsComplete;
+  const dataSourceComplete = isReferenceOutputRow || hasEcoinventMatch || isLinkedProjectItem || draft.ecoinventStatus === "missing";
   const rowEditorSteps = [
     {
-      label: "Required details",
-      complete: requiredDetailsComplete,
-      active: !requiredDetailsComplete,
-      locked: false,
+      id: "details" as const,
+      label: "Details",
     },
     {
-      label: "Ecoinvent",
-      complete: ecoinventDecisionComplete,
-      active: canEditEcoinvent && requiredDetailsComplete && !ecoinventDecisionComplete,
-      locked: false,
+      id: "dataset" as const,
+      label: "Data source",
     },
     {
-      label: "Notes",
-      complete: Boolean(draft.description.trim() || draft.reference.trim() || draft.notes.trim()),
-      active: canEditDocumentation && canSave,
-      locked: false,
+      id: "notes" as const,
+      label: "Documentation",
     },
   ];
 
@@ -370,13 +384,13 @@ export function RowEditorDialog({
   const applyPubChemMatch = (match: PubChemMatch) => {
     setDraft((current) => ({
       ...current,
-      name: current.name || match.title || match.iupacName || current.name,
+      name: match.title || match.iupacName || current.name,
       objectKind: "molecule",
       synonyms: getCuratedPubChemSynonymText(match),
-      cas: current.cas || match.matchedCas,
-      iupac: match.iupacName || current.iupac,
-      smiles: current.smiles || match.canonicalSmiles || current.smiles,
-      formula: match.molecularFormula || current.formula,
+      cas: match.matchedCas,
+      iupac: match.iupacName,
+      smiles: match.canonicalSmiles,
+      formula: match.molecularFormula,
       pubchemMatch: match,
       linkedMoleculeId: null,
     }));
@@ -386,6 +400,7 @@ export function RowEditorDialog({
   const applyEcoinventMatch = (match: EcoinventDatasetMatch) => {
     setDraft((current) => ({
       ...current,
+      linkedMoleculeId: null,
       ecoinventStatus: "present",
       ecoinventDatasetId: match.datasetId,
       ecoinventDatasetUuid: match.datasetUuid,
@@ -394,6 +409,7 @@ export function RowEditorDialog({
       ecoinventReferenceProduct: match.referenceProduct,
       ecoinventUnit: match.unit,
     }));
+    setLinkedActivityNotice(null);
     setEcoinventLookupOpen(false);
   };
 
@@ -410,6 +426,22 @@ export function RowEditorDialog({
     }));
   };
 
+  const linkProjectActivity = (molecule: MoleculeRecord) => {
+    setDraft((current) => ({
+      ...current,
+      linkedMoleculeId: molecule.id,
+      ecoinventStatus: "missing",
+      ecoinventDatasetId: "",
+      ecoinventDatasetUuid: "",
+      ecoinventGeography: "",
+      ecoinventName: "",
+      ecoinventReferenceProduct: "",
+      ecoinventUnit: "",
+    }));
+    setReuseSearchOpen(false);
+    setSearchQuery("");
+  };
+
   const buildRowPayload = (rowId?: string) => ({
     ...(rowId ? { id: rowId } : {}),
     section: draft.section,
@@ -422,6 +454,10 @@ export function RowEditorDialog({
     reactionValue: "",
     cleaningValue: "",
     totalValue: draft.totalValue,
+    uncertaintyEnabled: draft.uncertaintyEnabled,
+    minimumValue: draft.uncertaintyEnabled ? draft.minimumValue : "",
+    maximumValue: draft.uncertaintyEnabled ? draft.maximumValue : "",
+    amountSource: draft.amountSource,
     unit: draft.unit,
     totalScaledValue: rescaledPreview,
     scaledUnit: draft.scaledUnit || draft.unit,
@@ -443,6 +479,19 @@ export function RowEditorDialog({
     ecoinventUnit: isLinkedProjectItem || isReferenceOutputRow ? "" : draft.ecoinventUnit,
     rawEcoinventStatus: isReferenceOutputRow ? "OK" : resolutionLabels[isLinkedProjectItem ? "missing" : draft.ecoinventStatus],
   });
+  const importActivityFile = async (file: File) => {
+    const targetRowId = initialRow?.id ?? createdRowId ?? makeClientId("row");
+    setImportingActivity(true);
+    setImportActivityError("");
+    try {
+      await onImportActivityFromFile(file, targetRowId, buildRowPayload(targetRowId));
+      onClose();
+    } catch (error) {
+      setImportActivityError(error instanceof Error ? error.message : "The activity file could not be imported.");
+    } finally {
+      setImportingActivity(false);
+    }
+  };
   const handleConvertToKg = () => {
     setDraft((current) => {
       const converted = convertMassValueToKg(current.totalValue, current.unit);
@@ -455,16 +504,18 @@ export function RowEditorDialog({
       };
     });
   };
-  const createLinkedActivityFromInput = () => {
-    const targetRowId = initialRow?.id ?? makeClientId("row");
+  const createLinkedActivityFromInput = (activityDraft: MoleculeDraft) => {
+    const targetRowId = initialRow?.id ?? createdRowId ?? makeClientId("row");
     const payload = buildRowPayload(targetRowId);
     const childIsMolecule = draft.objectKind === "molecule";
 
-    onCreateChildFromRow(targetRowId, payload, {
+    const newMoleculeId = onCreateChildFromRow(targetRowId, payload, {
+      ...activityDraft,
       objectKind: draft.objectKind,
-      activityType: "Production of",
-      referenceProductName: draft.name,
-      name: draft.name,
+      activityType: activityDraft.activityType || "Production of",
+      referenceProductName: activityDraft.referenceProductName || draft.name,
+      referenceUnit: draft.unit || "kg",
+      name: activityDraft.referenceProductName || draft.name,
       cas: childIsMolecule ? draft.cas : "",
       iupac: childIsMolecule ? draft.iupac : "",
       smiles: childIsMolecule ? draft.smiles : "",
@@ -476,65 +527,82 @@ export function RowEditorDialog({
       parentMoleculeId: "",
       pubchemMatch: childIsMolecule ? draft.pubchemMatch ?? null : null,
     });
+    setDraft((current) => ({
+      ...current,
+      linkedMoleculeId: newMoleculeId,
+      ecoinventStatus: "missing",
+      ecoinventDatasetId: "",
+      ecoinventDatasetUuid: "",
+      ecoinventGeography: "",
+      ecoinventName: "",
+      ecoinventReferenceProduct: "",
+      ecoinventUnit: "",
+    }));
+    setCreatedRowId(targetRowId);
+    setLinkedActivityNotice(newMoleculeId);
+    setCreateLinkedActivityOpen(false);
   };
 
-  return (
+  return createPortal((
     <>
       <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-ink/35 px-4 py-6 backdrop-blur-sm">
-        <div className="hero-surface flex max-h-[calc(100dvh-3rem)] w-full max-w-6xl flex-col overflow-hidden rounded-lg border border-white/70 shadow-xl">
+        <div
+          aria-labelledby="inventory-flow-editor-title"
+          aria-modal="true"
+          className="hero-surface flex max-h-[calc(100dvh-3rem)] w-full max-w-5xl flex-col overflow-hidden rounded-xl border border-white/70 shadow-xl"
+          role="dialog"
+        >
         <div className="flex items-start justify-between gap-4 border-b border-mist/80 bg-white/90 px-5 py-4 backdrop-blur">
           <div>
-            <div className="text-sm font-semibold text-slate">{draft.section === "INPUT" ? "Input flow" : "Output flow"}</div>
-            <h2 className="mt-1 text-2xl font-semibold text-ink">
-              {initialRow ? "Edit reconstruction row" : `Add ${section.toLowerCase()} row`}
+            <div className="text-sm font-semibold text-slate">{draft.section === "INPUT" ? "What the activity uses" : "What the activity produces"}</div>
+            <h2 className="mt-1 text-2xl font-semibold text-ink" id="inventory-flow-editor-title">
+              {initialRow ? `Edit ${section.toLowerCase()}` : `Add ${section.toLowerCase()}`}
             </h2>
-            <div className="mt-1 text-sm text-slate">Name and unit are enough to save. A missing quantity is kept as a review warning.</div>
+            {isReferenceOutputRow ? (
+              <div className="mt-1 text-sm text-slate">The reference output needs a name, positive amount, and unit.</div>
+            ) : null}
           </div>
           <button
-            className="rounded-md border border-mist px-4 py-2 text-sm font-medium text-slate transition hover:border-accent hover:text-accent"
+            aria-label="Close flow editor"
+            className="grid h-8 w-8 place-items-center rounded-sm text-lg text-slate transition hover:bg-white/5 hover:text-ink"
             onClick={onClose}
             type="button"
           >
-            Close
+            ×
           </button>
         </div>
 
-        <div className="grid min-h-0 flex-1 overflow-y-auto lg:grid-cols-[17rem_minmax(0,1fr)]">
-          <aside className="border-b border-mist/80 bg-lab/80 p-4 lg:sticky lg:top-0 lg:h-full lg:border-b-0 lg:border-r">
-            <div className="space-y-2">
+        <div className="grid min-h-0 flex-1 overflow-hidden lg:grid-cols-[14rem_minmax(0,1fr)]">
+          <aside className="min-w-0 max-w-full overflow-hidden border-b border-mist/60 bg-lab/80 p-3 lg:h-full lg:border-b-0 lg:border-r">
+            <div className="flex max-w-full gap-2 overflow-x-auto pb-1 lg:block lg:space-y-2 lg:pb-0">
               {rowEditorSteps.map((step, index) => (
-                <StepPill
-                  active={step.active}
-                  complete={step.complete}
+                <EditorSectionTab
+                  active={activePanel === step.id}
+                  completed={step.id === "details" ? requiredDetailsComplete : step.id === "dataset" ? dataSourceComplete : Boolean(draft.amountSource || draft.description || draft.reference || draft.notes)}
                   index={index + 1}
                   key={step.label}
                   label={step.label}
-                  locked={step.locked}
+                  status={activePanel === step.id ? "Current" : step.id === "notes" ? "Optional" : undefined}
+                  onClick={() => setActivePanel(step.id)}
                 />
               ))}
             </div>
-            <div className="mt-4 rounded-lg border border-mist/80 bg-white p-3 text-sm">
-              <div className="font-semibold text-ink">Save condition</div>
-              <div className="mt-1 text-xs leading-5 text-slate">
-                Enter a name, amount, and unit to save. Dataset matching and notes can be completed now or later.
-              </div>
-            </div>
           </aside>
 
-        <div className="space-y-4 p-4 pb-24 sm:p-5 sm:pb-24">
-          <section className="rounded-lg border border-mist/80 bg-white/90 p-5 shadow-sm">
+        <div className="step-panel min-w-0 overflow-y-auto" key={activePanel}><div className="mx-auto max-w-4xl space-y-4 p-4 sm:p-6">
+          {activePanel === "details" ? (
+          <section className="p-1">
             <div className="flex flex-wrap items-start justify-between gap-4">
               <div>
-                <div className="section-title">Required</div>
-                <h3 className="mt-2 text-lg font-semibold text-ink">Core flow details</h3>
+                <h3 className="text-lg font-semibold text-ink">What is it, and how much is {draft.section === "INPUT" ? "used" : "produced"}?</h3>
               </div>
             </div>
 
             <div className="mt-4 grid gap-4 md:grid-cols-2">
               <label className="block">
-                <span className="text-sm font-medium text-ink">Item type</span>
+                <span className="text-sm font-medium text-ink">{draft.section === "INPUT" ? "Input" : "Output"} kind</span>
                 <select
-                  className="mt-2 w-full rounded-lg border border-mist bg-lab px-4 py-3 text-sm text-ink outline-none transition focus:border-accent"
+                  className="mt-2 w-full rounded-md border border-mist bg-lab px-4 py-3 text-sm text-ink outline-none transition focus:border-slate"
                   onChange={(event) =>
                     setDraft((current) => ({
                       ...current,
@@ -544,40 +612,91 @@ export function RowEditorDialog({
                   }
                   value={draft.objectKind}
                 >
-                  <option value="generic_object">Generic Object</option>
-                  <option value="molecule">Molecule</option>
+                  <option value="generic_object">Material, energy, transport, or service</option>
+                  <option value="molecule">Chemical substance</option>
                 </select>
               </label>
-              <label className="block">
-                <span className="text-sm font-medium text-ink">
-                  {draft.objectKind === "generic_object" ? "Object name" : "Molecule name"}
-                </span>
+              <div className="relative block">
+                <div className="flex items-center justify-between gap-3">
+                  <label className="text-sm font-medium text-ink" htmlFor="flow-name">
+                    {draft.objectKind === "generic_object" ? "Name *" : "Chemical name *"}
+                  </label>
+                  <button
+                    aria-expanded={nameTipOpen}
+                    className={`rounded-md border px-2.5 py-1 text-xs font-semibold transition ${
+                      nameTipOpen ? "border-helper bg-helper-soft text-helper" : "border-helper/45 text-helper hover:border-helper hover:bg-helper-soft"
+                    }`}
+                    onClick={() => setNameTipOpen((current) => !current)}
+                    type="button"
+                  >
+                    Tip
+                  </button>
+                </div>
                 <input
-                  className="mt-2 w-full rounded-lg border border-mist bg-lab px-4 py-3 text-sm text-ink outline-none transition focus:border-accent"
+                  className="mt-2 w-full rounded-md border border-mist bg-lab px-4 py-3 text-sm text-ink outline-none transition focus:border-slate"
+                  id="flow-name"
                   onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))}
-                  placeholder={draft.objectKind === "generic_object" ? "Object name" : "Molecule name"}
+                  placeholder={draft.objectKind === "generic_object" ? "e.g. Galvanised steel sheet, steel screw, or grid electricity" : "e.g. Ethylene glycol"}
                   value={draft.name}
                 />
-              </label>
+                {nameTipOpen ? (
+                  <div className="theme-popover absolute right-0 top-9 z-20 w-[min(21rem,calc(100vw-5rem))] rounded-lg border border-helper/55 p-4 text-sm leading-6 text-helper shadow-2xl" role="note">
+                    <span className="theme-popover absolute -top-2 right-5 h-4 w-4 rotate-45 border-l border-t border-helper/55" />
+                    <div className="flex items-start justify-between gap-3">
+                      <span className="font-semibold text-helper">Tip</span>
+                      <button aria-label="Close naming tip" className="-mr-1 -mt-1 grid h-6 w-6 place-items-center rounded text-base text-helper hover:bg-white/10" onClick={() => setNameTipOpen(false)} type="button">×</button>
+                    </div>
+                    <p className="mt-1">
+                      Put the item’s specific identity in Name: <span className="font-medium text-ink">Galvanised steel sheet</span>, <span className="font-medium text-ink">Steel screw</span>, or <span className="font-medium text-ink">Grid electricity</span>. Use Documentation for specifications, assumptions, or context—not for the item name.
+                    </p>
+                  </div>
+                ) : null}
+              </div>
             </div>
+
+            {draft.objectKind === "molecule" ? (
+              <div className="mt-4 border-t border-mist/60 pt-4">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <div className="text-sm font-semibold text-ink">Chemical identity</div>
+                  <div className="mt-0.5 text-xs text-helper">Search PubChem to confirm the chemical name and identifiers.</div>
+                </div>
+                <button
+                  className="theme-popover rounded-md border border-helper px-3 py-2 text-xs font-semibold text-helper transition hover:bg-helper-soft"
+                  onClick={() => setLookupOpen(true)}
+                  type="button"
+                >
+                  Look up in PubChem
+                </button>
+              </div>
+              {draft.pubchemMatch ? (
+                <div className="mt-3 border-l-2 border-slate px-3 py-2 text-xs text-slate" role="status">
+                  <span className="font-semibold text-ink">Imported from PubChem · CID {draft.pubchemMatch.cid}</span>
+                  <span className="mt-1 block">{[draft.cas && `CAS ${draft.cas}`, draft.formula, draft.iupac].filter(Boolean).join(" · ")}</span>
+                </div>
+              ) : null}
+              </div>
+            ) : null}
 
             <div className="mt-4 grid gap-4 md:grid-cols-2">
               <label className="block">
                 <span className="text-sm font-medium text-ink">Amount</span>
                 <input
-                  className={`mt-2 w-full rounded-lg border bg-lab px-4 py-3 text-sm text-ink outline-none transition focus:border-accent ${
-                    amountInvalid ? "border-alert" : "border-mist"
+                  aria-invalid={amountInvalid || referenceAmountInvalid}
+                  className={`mt-2 w-full rounded-md border bg-lab px-4 py-3 text-sm text-ink outline-none transition focus:border-slate ${
+                    amountInvalid || referenceAmountInvalid ? "border-alert" : "border-mist"
                   }`}
                   onChange={(event) => setDraft((current) => ({ ...current, totalValue: event.target.value }))}
                   placeholder="0.000"
                   value={draft.totalValue}
                 />
                 {amountInvalid ? <div className="mt-2 text-xs font-semibold text-alert">Use a numeric value such as 1, 0.25, or 3.5.</div> : null}
+                {referenceAmountInvalid && !amountInvalid ? <div className="mt-2 text-xs font-semibold text-alert">The reference amount must be greater than zero.</div> : null}
               </label>
 
               <label className="block">
                 <div className="flex items-center justify-between gap-3">
-                  <span className="text-sm font-medium text-ink">Unit</span>
+                  <span className="text-sm font-medium text-ink">Unit *</span>
                   {kgConversionPreview ? (
                     <button
                       className="rounded-md border border-accent/30 bg-white px-3 py-1.5 text-[11px] font-semibold text-accent transition hover:border-accent hover:bg-accent/5"
@@ -589,7 +708,7 @@ export function RowEditorDialog({
                   ) : null}
                 </div>
                 <input
-                  className="mt-2 w-full rounded-lg border border-mist bg-lab px-4 py-3 text-sm text-ink outline-none transition focus:border-accent"
+                  className="mt-2 w-full rounded-md border border-mist bg-lab px-4 py-3 text-sm text-ink outline-none transition focus:border-slate"
                   onChange={(event) =>
                     setDraft((current) => ({
                       ...current,
@@ -597,9 +716,20 @@ export function RowEditorDialog({
                       scaledUnit: event.target.value,
                     }))
                   }
-                  placeholder="kg"
+                  list="lci-unit-options"
+                  placeholder="e.g. kg, kWh, MJ, or m3"
                   value={draft.unit}
                 />
+                <datalist id="lci-unit-options">
+                  <option value="kg" />
+                  <option value="g" />
+                  <option value="kWh" />
+                  <option value="MJ" />
+                  <option value="m3" />
+                  <option value="L" />
+                  <option value="tkm" />
+                  <option value="item" />
+                </datalist>
                 {kgConversionPreview ? (
                   <div className="mt-2 rounded-lg border border-accent/15 bg-white px-3 py-2 text-xs leading-5 text-slate">
                     Fast mass conversion detected: {draft.totalValue || "-"} {kgConversionPreview.normalizedUnit} ={" "}
@@ -609,23 +739,80 @@ export function RowEditorDialog({
               </label>
             </div>
 
-            <div className="mt-3 flex flex-wrap gap-2">
-              {draft.objectKind === "molecule" ? (
+            <div className="mt-5 border-t border-mist/60 pt-4">
+              <div className="relative flex items-start justify-between gap-3">
+                <label className="flex cursor-pointer items-start gap-3">
+                  <input
+                    checked={draft.uncertaintyEnabled}
+                    className="mt-0.5 h-4 w-4 rounded border-mist text-accent focus:ring-accent"
+                    onChange={(event) => setDraft((current) => ({ ...current, uncertaintyEnabled: event.target.checked }))}
+                    type="checkbox"
+                  />
+                  <span>
+                    <span className="block text-sm font-semibold text-ink">Add uncertainty</span>
+                    <span className="mt-0.5 block text-xs leading-5 text-slate">
+                      Add the lowest and highest plausible value for this {draft.section === "INPUT" ? "input" : "output"}.
+                    </span>
+                  </span>
+                </label>
                 <button
-                  className="rounded-md border border-mist/80 bg-white px-3 py-1.5 text-xs font-semibold text-slate transition hover:border-accent hover:text-accent"
-                  onClick={() => setLookupOpen(true)}
+                  aria-label="Why uncertainty matters"
+                  className="grid h-7 w-7 shrink-0 place-items-center rounded-md border border-helper/45 text-xs font-bold text-helper transition hover:border-helper hover:bg-helper-soft"
+                  onClick={() => setUncertaintyHelpOpen(true)}
                   type="button"
                 >
-                  Lookup in PubChem
+                  ?
                 </button>
+                {uncertaintyHelpOpen ? (
+                  <aside className="theme-popover absolute right-0 top-10 z-30 w-[min(27rem,calc(100vw-5rem))] rounded-md border border-helper/45 p-4 text-sm leading-6 text-slate" role="note">
+                    <span className="theme-popover absolute -top-2 right-2 h-4 w-4 rotate-45 border-l border-t border-helper/45" />
+                    <div className="flex items-start justify-between gap-3"><span className="font-semibold text-ink">Why uncertainty matters</span><button aria-label="Close uncertainty help" className="grid h-6 w-6 place-items-center text-base text-slate hover:text-ink" onClick={() => setUncertaintyHelpOpen(false)} type="button">×</button></div>
+                    <p className="mt-2">Inventory values are rarely exact. Record a plausible minimum and maximum so measurements, calculations, or estimates do not appear more precise than the evidence allows.</p>
+                    <p className="mt-2">Document whether the value was measured, calculated, or estimated in the Documentation step.</p>
+                  </aside>
+                ) : null}
+              </div>
+              {draft.uncertaintyEnabled ? (
+                <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                  <label className="block">
+                    <span className="text-xs font-semibold text-ink">Minimum value</span>
+                    <input
+                      aria-invalid={uncertaintyInvalid}
+                      className={`mt-1.5 h-10 w-full rounded-md border bg-white px-3 text-sm text-ink outline-none transition focus:border-slate ${uncertaintyInvalid ? "border-alert" : "border-mist"}`}
+                      inputMode="decimal"
+                      onChange={(event) => setDraft((current) => ({ ...current, minimumValue: event.target.value }))}
+                      placeholder="Minimum"
+                      value={draft.minimumValue}
+                    />
+                  </label>
+                  <label className="block">
+                    <span className="text-xs font-semibold text-ink">Maximum value</span>
+                    <input
+                      aria-invalid={uncertaintyInvalid}
+                      className={`mt-1.5 h-10 w-full rounded-md border bg-white px-3 text-sm text-ink outline-none transition focus:border-slate ${uncertaintyInvalid ? "border-alert" : "border-mist"}`}
+                      inputMode="decimal"
+                      onChange={(event) => setDraft((current) => ({ ...current, maximumValue: event.target.value }))}
+                      placeholder="Maximum"
+                      value={draft.maximumValue}
+                    />
+                  </label>
+                  {uncertaintyInvalid ? (
+                    <p className="text-xs font-semibold text-alert sm:col-span-2">Enter numeric values with the minimum no greater than the maximum.</p>
+                  ) : null}
+                </div>
               ) : null}
             </div>
 
-            <div className="mt-4 rounded-lg border border-mist/80 bg-lab p-4">
+            <details className="mt-5 border-t border-mist/60">
+              <summary className="flex cursor-pointer list-none items-center justify-between gap-3 py-4 text-sm font-semibold text-ink">
+                <span>Advanced details</span>
+                <span className="text-xs font-normal text-slate">Optional</span>
+              </summary>
+              <div className="border-t border-mist/60 pt-4">
+            <div className="hidden">
               <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
                 <div>
-                  <div className="text-sm font-semibold text-ink">Reuse an existing project item</div>
-                  <div className="mt-1 text-xs text-slate">Optional: search previous activities or rows to avoid retyping names and identifiers.</div>
+                  <div className="text-sm font-semibold text-ink">Reuse something already in this project</div>
                 </div>
                 {reuseSearchOpen ? (
                   <button
@@ -846,54 +1033,72 @@ export function RowEditorDialog({
 	                />
               </label>
             </div>
-          </section>
-
-	          <section className="rounded-lg border border-mist/80 bg-white/80 p-5 shadow-sm transition">
-            <div className="flex flex-wrap items-start justify-between gap-4">
-              <div>
-                <div className="section-title">Ecoinvent dataset</div>
-                <h3 className="mt-2 text-lg font-semibold text-ink">Dataset decision</h3>
-	                {!identityComplete ? <p className="mt-2 text-sm text-slate">Enter the item name before selecting ecoinvent.</p> : null}
-	                {isReferenceOutputRow ? (
-	                  <p className="mt-2 text-sm text-slate">
-	                    This is the reference product for this activity. No ecoinvent match is required here.
-	                  </p>
-	                ) : null}
-	                {isLinkedProjectItem ? (
-	                  <p className="mt-2 text-sm text-slate">
-	                    This row is connected to an existing project item. The ecoinvent decision is locked and treated as internally modelled.
-	                  </p>
-	                ) : null}
-	              </div>
-	              <div className="flex flex-wrap gap-2">
-	                <button
-	                  className="rounded-md bg-accent px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-ink disabled:cursor-not-allowed disabled:opacity-45"
-	                  disabled={!canEditEcoinvent}
-	                  onClick={() => setEcoinventLookupOpen(true)}
-	                  type="button"
-	                >
-	                  Search ecoinvent
-	                </button>
-	                <button
-	                  className="rounded-md border border-mist/80 bg-white px-4 py-2 text-sm font-medium text-slate transition hover:border-alert/30 hover:text-alert disabled:cursor-not-allowed disabled:opacity-45"
-	                  disabled={!canEditEcoinvent}
-	                  onClick={markMissingFromEcoinvent}
-	                  type="button"
-	                >
-                  Mark as missing from ecoinvent
-                </button>
               </div>
-            </div>
+            </details>
+          </section>
+          ) : null}
+
+          {activePanel === "dataset" ? (
+          <section className="p-1 transition">
+	            <div>
+	              <h3 className="text-lg font-semibold text-ink">How is this {draft.section === "INPUT" ? "input" : "output"} represented?</h3>
+	              <p className="mt-2 max-w-3xl text-sm leading-6 text-slate">Choose one data source. You can change this choice later.</p>
+	            </div>
+                {isReferenceOutputRow ? <div className="mt-5 border-l-2 border-slate px-4 py-3 text-sm text-slate">This is the activity’s main output; it does not need a background dataset.</div> : (
+                  <div className="mt-5 grid gap-2">
+                    <button aria-pressed={hasEcoinventMatch} className={`flex items-center justify-between rounded-sm border px-4 py-3 text-left text-sm transition ${hasEcoinventMatch ? "border-slate bg-white/5 text-ink" : "border-mist/60 text-slate hover:bg-white/[0.035] hover:text-ink"}`} disabled={!canEditEcoinvent} onClick={() => setEcoinventLookupOpen(true)} type="button"><span><span className="block font-semibold text-ink">Link an ecoinvent dataset</span><span className="mt-0.5 block text-xs">Search background datasets by flow name.</span></span><span>{hasEcoinventMatch ? "✓" : "Search →"}</span></button>
+                    <button aria-pressed={isLinkedProjectItem || reuseSearchOpen} className={`flex items-center justify-between rounded-sm border px-4 py-3 text-left text-sm transition ${isLinkedProjectItem || reuseSearchOpen ? "border-slate bg-white/5 text-ink" : "border-mist/60 text-slate hover:bg-white/[0.035] hover:text-ink"}`} onClick={() => setReuseSearchOpen(true)} type="button"><span><span className="block font-semibold text-ink">Link, create, or import an activity</span><span className="mt-0.5 block text-xs">Use an activity from this project, model a new one, or import an exported activity file.</span></span><span>{isLinkedProjectItem ? "✓" : "Choose →"}</span></button>
+                    <button aria-pressed={draft.ecoinventStatus === "missing" && !isLinkedProjectItem} className={`flex items-center justify-between rounded-sm border px-4 py-3 text-left text-sm transition ${draft.ecoinventStatus === "missing" && !isLinkedProjectItem ? "border-slate bg-white/5 text-ink" : "border-mist/60 text-slate hover:bg-white/[0.035] hover:text-ink"}`} onClick={() => { markMissingFromEcoinvent(); setDraft((current) => ({ ...current, linkedMoleculeId: null })); setReuseSearchOpen(false); }} type="button"><span><span className="block font-semibold text-ink">No suitable dataset available</span><span className="mt-0.5 block text-xs">Keep the flow and mark its background data as missing.</span></span><span>{draft.ecoinventStatus === "missing" && !isLinkedProjectItem ? "✓ Selected" : "Select"}</span></button>
+                  </div>
+                )}
+                {reuseSearchOpen && !isReferenceOutputRow ? (
+                  <div className="mt-5 border-t border-mist/60 pt-4">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <div><div className="text-sm font-semibold text-ink">Activities in this project</div><div className="mt-0.5 text-xs text-slate">Link an existing activity, create one, or import a previously exported activity tree.</div></div>
+                      <div className="flex flex-wrap gap-2">
+                        <button className="rounded-sm border border-mist px-3 py-1.5 text-xs text-slate hover:text-ink" onClick={() => setCreateLinkedActivityOpen(true)} type="button">Create new activity</button>
+                        <button className="rounded-sm border border-mist px-3 py-1.5 text-xs text-slate hover:text-ink disabled:opacity-50" disabled={importingActivity} onClick={() => importActivityInputRef.current?.click()} type="button">{importingActivity ? "Importing…" : "Import activity from file"}</button>
+                        <input accept=".json,application/json" className="hidden" onChange={(event) => { const file = event.target.files?.[0]; if (file) void importActivityFile(file); event.target.value = ""; }} ref={importActivityInputRef} type="file" />
+                      </div>
+                    </div>
+                    {importActivityError ? <div className="mt-3 rounded-md border border-alert/30 bg-alert/10 px-3 py-2 text-xs leading-5 text-alert">{importActivityError}</div> : null}
+                    <input className="mt-3 w-full rounded-sm border border-mist bg-white px-3 py-2.5 text-sm text-ink outline-none focus:border-slate" onChange={(event) => setSearchQuery(event.target.value)} placeholder="Search project activities" value={searchQuery} />
+                    <div className="mt-2 max-h-48 space-y-1 overflow-y-auto">
+                      {searchResults.filter((item): item is Extract<ProjectItemResult, { kind: "molecule" }> => item.kind === "molecule").map((item) => <button className="flex w-full items-center justify-between rounded-sm px-3 py-2 text-left text-sm text-slate hover:bg-white/5 hover:text-ink" key={item.id} onClick={() => linkProjectActivity(item.molecule)} type="button"><span>{item.molecule.name}</span><span className="text-xs">Link</span></button>)}
+                    </div>
+                  </div>
+                ) : null}
 	            {isReferenceOutputRow ? (
 	              <div className="mt-4 rounded-lg border border-accent/20 bg-accent/10 px-4 py-3 text-sm font-semibold text-accent">
 	                Reference product output
 	              </div>
 	            ) : isLinkedProjectItem ? (
-	              <div className="mt-4 rounded-lg border border-mist bg-lab px-4 py-3 text-sm leading-6 text-slate">
-	                Internally modelled through <span className="font-semibold text-ink">{selectedMolecule?.name || "linked project item"}</span>.
+	              <div className={`mt-4 rounded-lg border px-4 py-4 ${linkedActivityNotice ? "border-sea/25 bg-sea/10" : "border-accent/20 bg-accent-soft/60"}`}>
+	                <div className="flex flex-wrap items-center justify-between gap-3">
+	                  <div>
+	                    <div className={`text-sm font-semibold ${linkedActivityNotice ? "text-sea" : "text-ink"}`}>
+	                      {linkedActivityNotice ? "✓ Activity created and linked" : "Linked activity"}
+	                    </div>
+	                    <div className="mt-1 text-sm text-slate">
+	                      {selectedMolecule?.name || draft.name || "Linked project activity"}. Continue editing this input, or open the activity to add its inventory.
+	                    </div>
+	                  </div>
+	                  <button
+	                    className="rounded-sm border border-mist px-3 py-2 text-sm font-semibold text-ink transition hover:bg-white/5"
+	                    onClick={() => {
+	                      if (draft.linkedMoleculeId) {
+	                        onOpenMolecule(draft.linkedMoleculeId);
+	                      }
+	                    }}
+	                    type="button"
+	                  >
+	                    Open activity →
+	                  </button>
+	                </div>
 	              </div>
-	            ) : hasEcoinventMatch ? (
+            ) : hasEcoinventMatch ? (
               <div className="mt-4 grid gap-4">
+                <div className="flex flex-wrap items-center justify-between gap-3 border-l-2 border-slate px-4 py-2"><div><div className="text-sm font-semibold text-ink">Dataset linked</div><div className="mt-0.5 text-xs text-slate">{draft.ecoinventName || "Selected ecoinvent dataset"}{draft.ecoinventGeography ? ` — ${draft.ecoinventGeography}` : ""}</div></div><button className="rounded-sm border border-mist px-3 py-1.5 text-xs text-slate hover:text-ink" onClick={() => setEcoinventLookupOpen(true)} type="button">Change dataset</button></div>
                 <div className="rounded-lg border border-accent/20 bg-lab px-4 py-3">
                   <div className="text-[11px] font-semibold text-slate">
                     Exact ecoinvent name
@@ -925,36 +1130,60 @@ export function RowEditorDialog({
                   : "No ecoinvent dataset selected yet. Search ecoinvent, or mark the item as missing."}
               </div>
             )}
-	            {draft.section === "INPUT" && draft.ecoinventStatus === "missing" && !isLinkedProjectItem ? (
+	            {false && draft.section === "INPUT" && draft.ecoinventStatus === "missing" && !isLinkedProjectItem ? (
               <button
                 className="mt-4 rounded-md border border-mist px-4 py-2 text-sm font-medium text-slate transition hover:border-accent hover:text-accent"
-                onClick={createLinkedActivityFromInput}
+                onClick={() => setCreateLinkedActivityOpen(true)}
                 type="button"
               >
-                Create activity for this input
+                Model this input as a new activity
               </button>
             ) : null}
           </section>
+          ) : null}
 
+          {activePanel === "notes" ? (
           <section
-            className={`rounded-lg border border-mist/80 bg-white/80 p-5 shadow-sm transition ${
+            className={`p-1 transition ${
               canEditDocumentation ? "" : "pointer-events-none opacity-45"
             }`}
           >
-            <div className="section-title">Documentation</div>
-            <h3 className="mt-2 text-lg font-semibold text-ink">Description, reference, and notes</h3>
+            <h3 className="text-lg font-semibold text-ink">Documentation</h3>
             {!canEditDocumentation ? (
               <p className="mt-2 text-sm text-slate">
                 Enter the item name before documenting the row.
               </p>
             ) : null}
             <div className="mt-4 grid gap-4">
+              <fieldset className="border-b border-mist/60 pb-5">
+                <legend className="px-1 text-sm font-semibold text-ink">
+                  How was this {draft.uncertaintyEnabled ? "amount or range" : "amount"} obtained?
+                </legend>
+                <div className="mt-3 grid gap-2 sm:grid-cols-3">
+                  {(["measured", "calculated", "estimated"] as const).map((source) => (
+                    <button
+                      aria-pressed={draft.amountSource === source}
+                      className={`rounded-md border px-3 py-2 text-sm font-semibold capitalize transition ${
+                        draft.amountSource === source
+                          ? "border-slate bg-white/5 text-ink"
+                          : "border-mist bg-white text-slate hover:border-slate hover:text-ink"
+                      }`}
+                      key={source}
+                      onClick={() => setDraft((current) => ({ ...current, amountSource: source }))}
+                      type="button"
+                    >
+                      {source}
+                    </button>
+                  ))}
+                </div>
+              </fieldset>
+
               <label className="block md:col-span-2">
                 <span className="text-sm font-medium text-ink">
-                  Description of the {draft.objectKind === "generic_object" ? "Object" : "molecule"}
+                  Description of the {draft.objectKind === "generic_object" ? "flow" : "molecule"}
                 </span>
                 <textarea
-                  className="mt-2 min-h-20 w-full rounded-lg border border-mist bg-lab px-4 py-3 text-sm text-ink outline-none transition focus:border-accent"
+                  className="mt-2 min-h-20 w-full rounded-md border border-mist bg-lab px-4 py-3 text-sm text-ink outline-none transition focus:border-slate"
                   onChange={(event) => setDraft((current) => ({ ...current, description: event.target.value }))}
                   placeholder="Short description of the row item or its role"
                   value={draft.description}
@@ -964,7 +1193,7 @@ export function RowEditorDialog({
               <label className="block md:col-span-2">
                 <span className="text-sm font-medium text-ink">Reference</span>
                 <textarea
-                  className="mt-2 min-h-24 w-full rounded-lg border border-mist bg-lab px-4 py-3 text-sm text-ink outline-none transition focus:border-accent"
+                  className="mt-2 min-h-24 w-full rounded-md border border-mist bg-lab px-4 py-3 text-sm text-ink outline-none transition focus:border-slate"
                   onChange={(event) => setDraft((current) => ({ ...current, reference: event.target.value }))}
                   placeholder="Patent, paper, memo, or dataset reference"
                   value={draft.reference}
@@ -972,9 +1201,9 @@ export function RowEditorDialog({
               </label>
 
               <label className="block md:col-span-2">
-                <span className="text-sm font-medium text-ink">Notes</span>
+                <span className="text-sm font-medium text-ink">Additional notes</span>
                 <textarea
-                  className="mt-2 min-h-24 w-full rounded-lg border border-mist bg-lab px-4 py-3 text-sm text-ink outline-none transition focus:border-accent"
+                  className="mt-2 min-h-24 w-full rounded-md border border-mist bg-lab px-4 py-3 text-sm text-ink outline-none transition focus:border-slate"
                   onChange={(event) => setDraft((current) => ({ ...current, notes: event.target.value }))}
                   placeholder="Optional row note"
                   value={draft.notes}
@@ -982,45 +1211,46 @@ export function RowEditorDialog({
               </label>
             </div>
           </section>
-        </div>
+          ) : null}
+        </div></div>
         </div>
 
-        <div className="flex items-center justify-between gap-3 border-t border-mist/80 bg-white/90 px-5 py-4">
-          <div className="text-sm text-slate">
-            {canSave
-              ? draft.totalValue.trim()
-                ? "Ready to save"
-                : "Ready to save with missing quantity warning"
-              : amountInvalid
-                ? "Fix the amount before saving"
-                : "Name and unit are required"}
+        <div className="flex flex-col items-stretch gap-3 border-t border-mist/80 bg-white/90 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-5 sm:py-4">
+          <div className="text-sm text-alert">
+            {!canSave && uncertaintyInvalid
+              ? "Check the uncertainty range."
+              : !canSave && (amountInvalid || referenceAmountInvalid)
+                ? "Enter a valid amount."
+                : ""}
           </div>
-          <div className="flex items-center gap-3">
-          <button
-            className="rounded-md border border-mist px-4 py-2 text-sm font-medium text-slate transition hover:border-accent hover:text-accent"
-            onClick={onClose}
-            type="button"
-          >
-            Cancel
-          </button>
-          <button
-            className="rounded-md bg-accent px-5 py-2 text-sm font-semibold text-white transition hover:bg-ink disabled:cursor-not-allowed disabled:bg-slate/40"
-            disabled={!canSave}
-            onClick={() => {
-              if (!canSave) {
-                return;
-              }
-              const targetRowId = initialRow?.id ?? makeClientId("row");
-              onSave(buildRowPayload(targetRowId), initialRow?.id);
-            }}
-            type="button"
-          >
-            {initialRow ? "Save row" : `Save ${draft.section.toLowerCase()} row`}
-          </button>
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            {activePanel === "details" ? <button className="rounded-sm px-3 py-2 text-sm font-medium text-slate transition hover:bg-white/5 hover:text-ink" onClick={onClose} type="button">Cancel</button> : <button className="rounded-sm px-3 py-2 text-sm font-medium text-slate transition hover:bg-white/5 hover:text-ink" onClick={() => setActivePanel(activePanel === "notes" ? "dataset" : "details")} type="button">Back</button>}
+            {activePanel !== "notes" ? (
+              <button className="rounded-sm bg-accent px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#ad4141] disabled:cursor-not-allowed disabled:bg-mist" disabled={activePanel === "details" ? !requiredDetailsComplete : !dataSourceComplete} onClick={() => setActivePanel(activePanel === "details" ? "dataset" : "notes")} type="button">Next: {activePanel === "details" ? "Data source" : "Documentation"}</button>
+            ) : (
+              <button className="rounded-sm bg-accent px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#ad4141] disabled:cursor-not-allowed disabled:bg-mist" disabled={!canSave} onClick={() => { if (!canSave) return; const targetRowId = initialRow?.id ?? createdRowId ?? makeClientId("row"); onSave(buildRowPayload(targetRowId), targetRowId); }} type="button">{initialRow ? `Save ${draft.section.toLowerCase()}` : `Add ${draft.section.toLowerCase()}`}</button>
+            )}
           </div>
         </div>
       </div>
       </div>
+
+      <CreateMoleculeDialog
+        initialValues={{
+          activityType: "Production of",
+          referenceProductName: draft.name,
+          referenceAmount: "1",
+          referenceUnit: draft.unit || "kg",
+          name: draft.name,
+          topLevel: false,
+        }}
+        layerClassName="z-[90]"
+        onClose={() => setCreateLinkedActivityOpen(false)}
+        onSubmit={createLinkedActivityFromInput}
+        open={createLinkedActivityOpen}
+        submitLabel="Create and link activity"
+        title="Create linked activity"
+      />
 
       <PubChemLookupDialog
         initialQuery={draft.cas || draft.name || draft.iupac}
@@ -1030,11 +1260,16 @@ export function RowEditorDialog({
         title="Lookup row identity in PubChem"
       />
       <EcoinventLookupDialog
+        context={{
+          unit: draft.unit,
+          goalAndScope: currentMolecule.documentation.referenceAndScope,
+          functionalUnit: currentMolecule.documentation.functionalUnit,
+        }}
         initialQuery={draft.ecoinventName || draft.name || draft.cas || draft.iupac}
         onClose={() => setEcoinventLookupOpen(false)}
         onSelect={applyEcoinventMatch}
         open={ecoinventLookupOpen}
       />
     </>
-  );
+  ), document.body);
 }

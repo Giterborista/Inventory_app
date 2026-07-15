@@ -209,6 +209,13 @@ export function createBlankRow(
     reactionValue: safeText(row.reactionValue),
     cleaningValue: safeText(row.cleaningValue),
     totalValue: safeText(row.totalValue),
+    uncertaintyEnabled: row.uncertaintyEnabled ?? false,
+    minimumValue: safeText(row.minimumValue),
+    maximumValue: safeText(row.maximumValue),
+    amountSource:
+      row.amountSource === "measured" || row.amountSource === "calculated" || row.amountSource === "estimated"
+        ? row.amountSource
+        : "",
     unit: safeText(row.unit, "kg"),
     totalScaledValue: safeText(row.totalScaledValue),
     scaledUnit: safeText(row.scaledUnit ?? row.unit, "kg"),
@@ -309,13 +316,19 @@ export function inferReviewStatus(
   return hasStructuredDocs ? ("ready" as const) : ("draft" as const);
 }
 
-export function createMoleculeFromDraft(draft: MoleculeDraft, importSessionId: string): MoleculeRecord {
+export function createMoleculeFromDraft(
+  draft: MoleculeDraft,
+  importSessionId: string,
+  moleculeId = makeClientId("molecule"),
+): MoleculeRecord {
   const timestamp = nowIso();
   const documentation = createEmptyDocumentation();
   const referenceProductName = safeText(draft.referenceProductName || draft.name, "Untitled activity").trim();
+  const referenceAmount = safeText(draft.referenceAmount, "1").trim() || "1";
+  const referenceUnit = safeText(draft.referenceUnit, "kg").trim() || "kg";
 
   return {
-    id: makeClientId("molecule"),
+    id: moleculeId,
     activityType: draft.activityType ?? "production",
     referenceProductName,
     objectKind: draft.objectKind ?? "molecule",
@@ -334,9 +347,9 @@ export function createMoleculeFromDraft(draft: MoleculeDraft, importSessionId: s
     needsReview: draft.ecoinventStatus !== "present",
     topLevel: draft.topLevel,
     rootOrder: 0,
-    scaleReferenceAmount: "",
-    scaleTargetAmount: "1",
-    scaleUnit: "kg",
+    scaleReferenceAmount: referenceAmount,
+    scaleTargetAmount: referenceAmount,
+    scaleUnit: referenceUnit,
     sourceWorkbook: "Manual entry",
     sourceSheet: "",
     importSessionId,
@@ -345,8 +358,10 @@ export function createMoleculeFromDraft(draft: MoleculeDraft, importSessionId: s
       createBlankRow("OUTPUT", 1, {
         objectKind: "generic_object",
         name: referenceProductName,
-        unit: "",
-        scaledUnit: "",
+        totalValue: referenceAmount,
+        totalScaledValue: referenceAmount,
+        unit: referenceUnit,
+        scaledUnit: referenceUnit,
         ecoinventStatus: "unchecked",
         rawEcoinventStatus: "Not checked",
       }),
