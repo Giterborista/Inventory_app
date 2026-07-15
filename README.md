@@ -18,6 +18,38 @@ UI-only browser application for proxy modelling of molecules missing from ecoinv
 4. Run `npm run dev`.
 5. Open [http://localhost:3000](http://localhost:3000).
 
+## Password-protected AI assistance
+
+The same codebase supports two environments. Local `npm run dev` is open by
+default and reads `OPENAI_API_KEY` from `.env.local`. On Render, the application
+and manual ecoQuery search remain open, while only the OpenAI-backed assistant
+route requires the shared beta password. Render reads all secrets from its
+Environment panel.
+
+Generate a password hash and session secret locally:
+
+```bash
+npm run auth:generate
+```
+
+The command asks twice for an access password without displaying it. Copy its
+three output variables into Render, along with the production
+`OPENAI_API_KEY`. Do not place the generated values in GitHub.
+
+```text
+AI_AUTH_ENABLED=true
+AI_AUTH_PASSWORD_HASH=generated scrypt hash
+AI_AUTH_SESSION_SECRET=generated random secret
+OPENAI_API_KEY=production OpenAI project key
+```
+
+When a user selects AI assistance without an active session, the dataset dialog
+asks for the access password and retries the AI search after successful login.
+Manual ecoQuery requests never require this password. The server creates a
+signed, HTTP-only, same-site cookie that expires after 12 hours. Five incorrect
+attempts from the same client within 15 minutes temporarily return HTTP 429.
+The password itself is not stored by the application.
+
 ## ecoinvent search beta
 
 The row dataset picker opens with a direct ecoQuery search. `MARKET_ACTIVITY` is selected by default, while the activity-type menu also offers transforming activities, market groups, production mixes, and all activity types. Researchers can filter the literal activity/product query with the live sector, ISIC section, and ISIC class facets returned by ecoQuery. Before a query, these menus load the complete live catalogue; after a query, they update to the classifications relevant to that query. Results are grouped by activity name, reference product, unit, and activity type; expanding a group exposes every exact geography-specific dataset. Each geography row can load its public product information, general comment, included-activity descriptions, synonyms, identifiers, and sector before the researcher selects it. This manual path does not call OpenAI.
