@@ -98,6 +98,10 @@ export type ReconstructionRow = {
   reactionValue: string;
   cleaningValue: string;
   totalValue: string;
+  uncertaintyEnabled: boolean;
+  minimumValue: string;
+  maximumValue: string;
+  amountSource: "" | "measured" | "calculated" | "estimated";
   unit: string;
   totalScaledValue: string;
   scaledUnit: string;
@@ -196,6 +200,26 @@ export type EcoinventDatasetMatch = {
   synonyms: string[];
   version: string;
   systemModel: string;
+  geographyVariants?: string[];
+  geographyDatasets?: Array<{
+    datasetId: string;
+    datasetUuid: string;
+    datasetUrl: string;
+    geography: string;
+    exactName: string;
+  }>;
+  aiAssessment?: {
+    rank: number;
+    confidence: "high" | "medium" | "low";
+    degree: 0 | 1 | 2 | 3 | 4;
+    degreeLabel: "Exact" | "Normalized" | "Decomposed" | "Close proxy" | "Broad proxy";
+    branchMatch: "exact" | "normalized" | "proxy" | "mismatch";
+    accepted: boolean;
+    selectable: boolean;
+    rejectionReason: string;
+    rationale: string;
+    cautions: string[];
+  };
 };
 
 export type ObjectKind = "molecule" | "generic_object";
@@ -256,6 +280,8 @@ export type WorkbenchState = {
 export type MoleculeDraft = {
   activityType: ActivityType;
   referenceProductName: string;
+  referenceAmount: string;
+  referenceUnit: string;
   objectKind: ObjectKind;
   name: string;
   cas: string;

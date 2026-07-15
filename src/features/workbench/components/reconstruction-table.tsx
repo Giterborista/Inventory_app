@@ -1,13 +1,12 @@
 "use client";
 
 import { Fragment, useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 
-import { PasDefaultsDialog } from "@/features/workbench/components/pas-defaults-dialog";
-import { ReviewStatusIcon, ReviewStatusPill } from "@/features/workbench/components/review-status-icon";
+import { ActivityFlowDiagram } from "@/features/workbench/components/activity-flow-diagram";
 import { RowEditorDialog } from "@/features/workbench/components/row-editor-dialog";
-import { StatusBadge } from "@/features/workbench/components/status-badge";
-import { resolutionLabels, resolutionTone } from "@/features/workbench/display";
-import { getLinkedMolecule, getRowInventoryReviewIssues, hasReferenceOutput, isReferenceProductRow } from "@/features/workbench/selectors";
+import { resolutionLabels } from "@/features/workbench/display";
+import { getLinkedMolecule, getRowInventoryReviewIssues, isReferenceProductRow } from "@/features/workbench/selectors";
 import type { PasProfile } from "@/features/workbench/pas-defaults";
 import type {
   MoleculeDraft,
@@ -19,7 +18,16 @@ import type {
   ResolutionStatus,
 } from "@/features/workbench/types";
 
+export type InventoryFixRequest = {
+  key: number;
+  kind: "row" | "add";
+  section: ReconstructionSection;
+  rowId?: string;
+  panel?: "details" | "dataset" | "notes";
+};
+
 type ReconstructionTableProps = {
+  activeSection: ReconstructionSection;
   project: ProjectRecord;
   molecule: MoleculeRecord;
   onDeleteRow: (rowId: string) => void;
@@ -28,13 +36,16 @@ type ReconstructionTableProps = {
     rowId: string,
     values: Partial<ReconstructionRow> & { section: ReconstructionSection },
     draft: Partial<MoleculeDraft>,
-  ) => void;
+  ) => string;
+  onImportActivityFromFile: (file: File, rowId: string, values: Partial<ReconstructionRow> & { section: ReconstructionSection }) => Promise<void>;
   onApplyPasDefaults: (profile: PasProfile) => void;
   onSaveRow: (section: ReconstructionSection, values: Partial<ReconstructionRow>, rowId?: string) => void;
   onRescale: () => void;
   onUpdateScaleField: (field: "scaleReferenceAmount" | "scaleTargetAmount" | "scaleUnit", value: string) => void;
   autoOpenSection?: ReconstructionSection | null;
   onAutoOpenHandled?: () => void;
+  fixRequest?: InventoryFixRequest | null;
+  onFixRequestHandled?: () => void;
 };
 
 type EditorState = {
@@ -42,6 +53,7 @@ type EditorState = {
   mode: "inline" | "advanced";
   section: ReconstructionSection;
   row: ReconstructionRow | null;
+  panel: "details" | "dataset" | "notes";
 };
 
 type InlineRowDraft = {
@@ -88,10 +100,6 @@ function hasMeaningfulRo(value: string) {
   return Boolean(normalized && normalized !== "-" && normalized !== "–" && normalized !== "—");
 }
 
-function normalizeUnit(value: string) {
-  return value.trim().toLowerCase();
-}
-
 function compactRowPreview(row: ReconstructionRow) {
   const sourceText =
     row.synonyms.length > 0
@@ -100,36 +108,9 @@ function compactRowPreview(row: ReconstructionRow) {
   const normalized = sourceText.replace(/\s+/g, " ").trim();
 
   if (!normalized) {
-    return "No short note yet";
+    return "";
   }
   return normalized.length > 96 ? `${normalized.slice(0, 93)}...` : normalized;
-}
-
-function FlowTab({
-  active,
-  count,
-  label,
-  onClick,
-}: {
-  active: boolean;
-  count: number;
-  label: string;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      className={`inline-flex h-10 items-center gap-2 rounded-md px-3 text-sm font-semibold transition ${
-        active ? "bg-ink text-white shadow-sm" : "text-slate hover:bg-white hover:text-ink"
-      }`}
-      onClick={onClick}
-      type="button"
-    >
-      <span>{label}</span>
-      <span className={`rounded px-1.5 py-0.5 text-xs ${active ? "bg-white/15 text-white" : "bg-mist/70 text-slate"}`}>
-        {count}
-      </span>
-    </button>
-  );
 }
 
 function InlineRowEditorSheet({
@@ -164,30 +145,11 @@ function InlineRowEditorSheet({
 
   return (
     <div className="rounded-lg border border-ink/10 bg-white shadow-[0_18px_40px_rgba(15,31,53,0.12)]">
-      <div className="grid min-h-[18rem] lg:grid-cols-[12rem_minmax(0,1fr)]">
-        <aside className="border-b border-mist/80 bg-lab/95 p-4 lg:border-b-0 lg:border-r">
-          <div className="text-xs font-semibold uppercase tracking-[0.14em] text-slate">{modeLabel}</div>
-          <div className="mt-4 space-y-2">
-            <div className="rounded-md border border-ink/10 bg-white px-3 py-2 text-sm font-semibold text-ink">
-              1. Flow
-            </div>
-            <div className="rounded-md border border-mist bg-white/65 px-3 py-2 text-sm font-medium text-slate">
-              2. Amount
-            </div>
-            <div className="rounded-md border border-mist bg-white/65 px-3 py-2 text-sm font-medium text-slate">
-              3. Dataset
-            </div>
-          </div>
-          <div className="mt-4 rounded-md border border-mist bg-white px-3 py-2 text-xs leading-5 text-slate">
-            Required fields are visible here. PubChem, ecoinvent lookup, and child activity creation stay in advanced details.
-          </div>
-        </aside>
-
-        <div className="p-4 sm:p-5">
+      <div className="p-4 sm:p-5">
           <div className="flex flex-wrap items-start justify-between gap-4 border-b border-mist/80 pb-4">
             <div>
-              <div className="text-xs font-semibold text-slate">{section === "INPUT" ? "Input to activity" : "Output from activity"}</div>
-              <h3 className="mt-1 text-xl font-semibold text-ink">{row ? row.name || "Untitled row" : "New inventory flow"}</h3>
+              <div className="text-xs font-semibold text-slate">{modeLabel}</div>
+              <h3 className="mt-1 text-xl font-semibold text-ink">{section === "INPUT" ? "What does the activity use?" : "What does the activity produce?"}</h3>
             </div>
             <div className="flex items-center gap-2">
               <button
@@ -196,7 +158,7 @@ function InlineRowEditorSheet({
                 onClick={onAdvanced}
                 type="button"
               >
-                {row ? "Advanced details" : "Advanced after save"}
+                More details
               </button>
               <button
                 className="rounded-md border border-mist bg-white px-3 py-2 text-xs font-semibold text-slate transition hover:border-alert/40 hover:text-alert"
@@ -208,10 +170,9 @@ function InlineRowEditorSheet({
             </div>
           </div>
 
-          <div className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,1fr)_13rem]">
-            <div className="grid gap-4 md:grid-cols-2">
+          <div className="mt-4 grid gap-4 md:grid-cols-2">
               <label className="block md:col-span-2">
-                <span className="text-sm font-semibold text-ink">Flow name</span>
+                <span className="text-sm font-semibold text-ink">Name</span>
                 <input
                   className="mt-2 h-11 w-full rounded-md border border-mist bg-lab px-3 text-sm text-ink outline-none transition focus:border-accent focus:bg-white"
                   onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))}
@@ -244,7 +205,7 @@ function InlineRowEditorSheet({
               </label>
 
               <label className="block">
-                <span className="text-sm font-semibold text-ink">Item type</span>
+                <span className="text-sm font-semibold text-ink">Input kind</span>
                 <select
                   className="mt-2 h-11 w-full rounded-md border border-mist bg-lab px-3 text-sm text-ink outline-none transition focus:border-accent focus:bg-white"
                   onChange={(event) =>
@@ -255,13 +216,13 @@ function InlineRowEditorSheet({
                   }
                   value={draft.objectKind}
                 >
-                  <option value="generic_object">Generic object</option>
-                  <option value="molecule">Molecule</option>
+                  <option value="generic_object">Material, energy, transport, or service</option>
+                  <option value="molecule">Chemical substance</option>
                 </select>
               </label>
 
               <label className="block">
-                <span className="text-sm font-semibold text-ink">Ecoinvent status</span>
+                <span className="text-sm font-semibold text-ink">Dataset status</span>
                 <select
                   className="mt-2 h-11 w-full rounded-md border border-mist bg-lab px-3 text-sm text-ink outline-none transition focus:border-accent focus:bg-white"
                   onChange={(event) =>
@@ -289,19 +250,6 @@ function InlineRowEditorSheet({
                   value={draft.notes}
                 />
               </label>
-            </div>
-
-            <div className="rounded-md border border-mist bg-lab p-4">
-              <div className="text-xs font-semibold uppercase tracking-[0.14em] text-slate">Preview</div>
-              <div className="mt-3 text-sm font-semibold text-ink">{draft.name || "Unnamed flow"}</div>
-              <div className="mt-2 text-sm text-slate">
-                {draft.totalValue || "-"} {draft.unit || ""}
-              </div>
-              <div className="mt-4 rounded-md bg-white px-3 py-2 text-xs leading-5 text-slate">
-                Scaled value: <span className="font-semibold text-ink">{scaledPreview || "-"}</span> {draft.unit || ""}
-              </div>
-              <StatusBadge label={resolutionLabels[draft.ecoinventStatus]} tone={resolutionTone(draft.ecoinventStatus)} />
-            </div>
           </div>
 
           <div className="mt-5 flex flex-wrap items-center justify-end gap-2 border-t border-mist/80 pt-4">
@@ -313,7 +261,7 @@ function InlineRowEditorSheet({
               Cancel
             </button>
             <button
-              className="rounded-md bg-ink px-5 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
+              className="rounded-md bg-accent px-5 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-[#1f4b87] disabled:cursor-not-allowed disabled:opacity-50"
               disabled={!canSave}
               onClick={() =>
                 onSave(
@@ -335,10 +283,9 @@ function InlineRowEditorSheet({
               }
               type="button"
             >
-              Save row
+              Save
             </button>
           </div>
-        </div>
       </div>
     </div>
   );
@@ -347,7 +294,6 @@ function InlineRowEditorSheet({
 function RowTable({
   inlineEditor,
   molecule,
-  onAdd,
   onCancelInlineEditor,
   onDeleteRow,
   onOpenAdvancedEditor,
@@ -361,11 +307,14 @@ function RowTable({
 }: {
   inlineEditor: EditorState | null;
   molecule: MoleculeRecord;
-  onAdd: () => void;
   onCancelInlineEditor: () => void;
   onDeleteRow: (rowId: string) => void;
   onOpenAdvancedEditor: (section: ReconstructionSection, row?: ReconstructionRow | null) => void;
-  onOpenEditor: (section: ReconstructionSection, row?: ReconstructionRow | null) => void;
+  onOpenEditor: (
+    section: ReconstructionSection,
+    row?: ReconstructionRow | null,
+    panel?: "details" | "dataset" | "notes",
+  ) => void;
   onOpenMolecule: (moleculeId: string) => void;
   onSaveInlineRow: (values: Partial<ReconstructionRow>, rowId?: string) => void;
   project: ProjectRecord;
@@ -387,22 +336,12 @@ function RowTable({
             section={section}
           />
         ) : (
-          <div className="rounded-lg border border-dashed border-mist bg-lab px-5 py-8">
-            <div className="text-lg font-semibold text-ink">
-              {section === "INPUT" ? "No input flows yet" : "No output flows yet"}
-            </div>
-            <div className="mt-2 max-w-2xl text-sm leading-6 text-slate">
+          <div className="border-t border-mist/60 px-1 py-7">
+            <div className="max-w-2xl text-sm leading-6 text-slate">
               {section === "INPUT"
-                ? "Add the materials, energy, auxiliaries, or upstream services needed by this activity."
-                : "Add the reference product and any co-products, emissions, or wastes leaving this activity."}
+                ? "Add the materials, energy, water, transport, or services used by this activity."
+                : "Add co-products, emissions, or waste only when they are part of what you are studying."}
             </div>
-            <button
-              className="mt-4 rounded-md bg-accent px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-ink"
-              onClick={onAdd}
-              type="button"
-            >
-              Add first {section.toLowerCase()} row
-            </button>
           </div>
         )}
       </div>
@@ -422,96 +361,98 @@ function RowTable({
           section={section}
         />
       ) : null}
-      <div className="overflow-x-auto rounded-lg border border-mist/80 bg-white">
-      <table className={`w-full border-collapse ${showScaledColumn ? "min-w-[48rem]" : "min-w-[42rem]"}`}>
+      <div className="overflow-x-auto border-y border-mist/60 bg-white">
+      <table className={`w-full border-collapse ${showScaledColumn ? "min-w-[42rem]" : "min-w-[36rem]"}`}>
         <thead>
-          <tr className="border-b border-mist/80 bg-lab text-left text-xs font-semibold text-slate">
-            <th className={showScaledColumn ? "w-[32%] px-4 py-3" : "w-[38%] px-4 py-3"}>Flow</th>
+          <tr className="border-b border-mist/70 bg-transparent text-left text-xs font-semibold text-slate">
+            <th className={showScaledColumn ? "w-[40%] px-4 py-3" : "w-[46%] px-4 py-3"}>Flow</th>
             <th className="w-[12%] px-4 py-3">Amount</th>
             <th className="w-[10%] px-4 py-3">Unit</th>
             {showScaledColumn ? <th className="w-[14%] px-4 py-3">Scaled</th> : null}
-            <th className="w-[18%] px-4 py-3">Review</th>
-            <th className="w-[14%] px-4 py-3 text-right">Actions</th>
+            <th className="w-[20%] px-4 py-3 text-right">Actions</th>
           </tr>
         </thead>
         <tbody>
           {rows.map((row) => {
             const linkedMolecule = getLinkedMolecule(project, row);
-            const missingLinkedOutput = Boolean(linkedMolecule && !hasReferenceOutput(linkedMolecule));
             const referenceProductOutput = isReferenceProductRow(molecule, row);
-            const missingAmount = !row.totalValue.trim() && !referenceProductOutput;
-            const reviewItems = getRowInventoryReviewIssues(project, molecule, row);
+            const backgroundIssue = getRowInventoryReviewIssues(project, molecule, row).find(
+              (issue) => issue.target === "row-background" && issue.state === "alert",
+            );
+            const rowPreview = compactRowPreview(row);
+            const amountDisplay =
+              row.totalValue ||
+              (row.uncertaintyEnabled && row.minimumValue && row.maximumValue
+                ? `${row.minimumValue}–${row.maximumValue}`
+                : "—");
 
             const inlineOpenForRow = Boolean(inlineEditor?.row?.id === row.id && inlineEditor.section === section);
 
             return (
               <Fragment key={row.id}>
-              <tr className={`border-b border-mist/60 align-top transition hover:bg-lab/55 ${inlineOpenForRow ? "bg-[#f3f7fb]" : ""}`}>
+              <tr className={`border-b border-mist/60 align-top transition hover:bg-lab/55 ${inlineOpenForRow ? "bg-accent-soft/45" : ""}`}>
                 <td className="px-4 py-4">
                   <div className="font-semibold text-ink">{row.name || "Untitled row"}</div>
-                  <div className="mt-1 max-w-xl text-xs leading-5 text-slate">{compactRowPreview(row)}</div>
+                  {rowPreview ? <div className="mt-1 max-w-xl text-xs leading-5 text-slate">{rowPreview}</div> : null}
                   <div className="mt-2 flex flex-wrap items-center gap-2">
                     {hasMeaningfulRo(row.ro) ? <span className="text-[11px] font-medium text-slate">RO {row.ro}</span> : null}
-                    {missingLinkedOutput ? <StatusBadge label="Missing reference output" tone="alert" /> : null}
                     {linkedMolecule ? (
                       <button
-                        className="text-xs font-semibold text-accent underline-offset-2 hover:underline"
+                        className="inline-flex items-center gap-1.5 rounded-sm bg-mist px-2 py-1 text-[11px] font-semibold text-ink transition hover:text-ink"
                         onClick={() => onOpenMolecule(linkedMolecule.id)}
                         type="button"
                       >
-                        Open activity
+                        <span aria-hidden="true">↗</span> Linked activity · {linkedMolecule.name}
+                      </button>
+                    ) : null}
+                    {backgroundIssue ? (
+                      <button
+                        className="inline-flex items-center gap-1.5 rounded-sm bg-alert/10 px-2 py-1 text-[11px] font-semibold text-alert transition hover:bg-alert/15"
+                        onClick={() => onOpenEditor(section, row, "dataset")}
+                        type="button"
+                      >
+                        <span className="h-1.5 w-1.5 rounded-full bg-alert" />
+                        {backgroundIssue.label}
                       </button>
                     ) : null}
                   </div>
                 </td>
                 <td className="px-4 py-4 text-sm text-ink">
-                  <span
-                    className={
-                      missingAmount
-                        ? "inline-flex rounded-md border border-amber-200 bg-amber-50 px-2.5 py-1 font-semibold text-amber-800"
-                        : ""
-                    }
-                  >
-                    {row.totalValue || (referenceProductOutput ? "-" : "Missing")}
-                  </span>
+                  {amountDisplay}
+                  {row.amountSource ? (
+                    <span className="mt-1 block text-[10px] font-semibold capitalize text-slate">{row.amountSource}</span>
+                  ) : null}
                 </td>
                 <td className="px-4 py-4 text-sm text-ink">{row.unit || "-"}</td>
                 {showScaledColumn ? (
                   <td className="px-4 py-4 text-sm font-semibold text-ink">{row.totalScaledValue || "-"}</td>
                 ) : null}
                 <td className="px-4 py-4">
-                  <div className="flex flex-col gap-2">
-                    {reviewItems.length > 0 ? (
-                      reviewItems.slice(0, 2).map((item) => (
-                        <ReviewStatusPill key={item.label} label={item.label} state={item.state} />
-                      ))
-                    ) : (
-                      <ReviewStatusIcon state="ok" />
-                    )}
-                  </div>
-                </td>
-                <td className="px-4 py-4">
                   <div className="flex justify-end gap-2">
                     <button
-                      className="rounded-md border border-mist px-3 py-2 text-xs font-semibold text-slate transition hover:border-accent hover:text-accent"
+                      className="rounded-md px-2 py-2 text-xs font-semibold text-slate transition hover:bg-lab hover:text-accent"
                       onClick={() => onOpenEditor(section, row)}
                       type="button"
                     >
-                      Edit/check
+                      Edit details
                     </button>
-                    <button
-                      className="rounded-md border border-alert/20 px-3 py-2 text-xs font-semibold text-alert transition hover:bg-alert/10"
-                      onClick={() => onDeleteRow(row.id)}
-                      type="button"
-                    >
-                      Delete
-                    </button>
+                    {!referenceProductOutput ? (
+                      <button
+                        aria-label={`Delete ${row.name || "flow"}`}
+                        className="grid h-8 w-8 place-items-center rounded-md text-base text-slate transition hover:bg-alert/10 hover:text-alert"
+                        onClick={() => onDeleteRow(row.id)}
+                        title="Delete flow"
+                        type="button"
+                      >
+                        ×
+                      </button>
+                    ) : null}
                   </div>
                 </td>
               </tr>
               {inlineOpenForRow ? (
-                <tr key={`${row.id}-editor`} className="border-b border-mist/60 bg-[#f3f7fb]">
-                  <td className="px-3 pb-4 pt-0" colSpan={showScaledColumn ? 6 : 5}>
+                <tr key={`${row.id}-editor`} className="border-b border-mist/60 bg-accent-soft/45">
+                  <td className="px-3 pb-4 pt-0" colSpan={showScaledColumn ? 5 : 4}>
                     <InlineRowEditorSheet
                       molecule={molecule}
                       onAdvanced={() => onOpenAdvancedEditor(section, row)}
@@ -534,28 +475,30 @@ function RowTable({
 }
 
 export function ReconstructionTable({
+  activeSection,
   project,
   molecule,
   onDeleteRow,
   onOpenMolecule,
   onCreateChildFromRow,
-  onApplyPasDefaults,
+  onImportActivityFromFile,
   onSaveRow,
   onRescale,
   onUpdateScaleField,
   autoOpenSection,
   onAutoOpenHandled,
+  fixRequest,
+  onFixRequestHandled,
 }: ReconstructionTableProps) {
   const [editorState, setEditorState] = useState<EditorState>({
     open: false,
     mode: "inline",
     section: "INPUT",
     row: null,
+    panel: "details",
   });
-  const [activeSection, setActiveSection] = useState<ReconstructionSection>("INPUT");
-  const [pasDialogOpen, setPasDialogOpen] = useState(false);
-  const [activityNotice, setActivityNotice] = useState("");
-  const [referenceBasisOpen, setReferenceBasisOpen] = useState(false);
+  const [helpOpen, setHelpOpen] = useState(false);
+  const [scaleOpen, setScaleOpen] = useState(false);
   const [scaledColumnVisible, setScaledColumnVisible] = useState(false);
 
   const inputRows = useMemo(
@@ -567,44 +510,26 @@ export function ReconstructionTable({
     [molecule.rows],
   );
   const activeRows = activeSection === "INPUT" ? inputRows : outputRows;
-  const scaleUnit = molecule.scaleUnit || "kg";
-  const referenceProductUnitMismatch = useMemo(() => {
-    const referenceProductName = molecule.referenceProductName || molecule.name;
-    const referenceRow =
-      outputRows.find((row) => row.order === 1 && row.name.trim() === referenceProductName.trim()) ??
-      outputRows[0] ??
-      null;
-    const referenceUnit = normalizeUnit(referenceRow?.unit || referenceRow?.scaledUnit || "");
-    const normalizedScaleUnit = normalizeUnit(scaleUnit);
+  const referenceAmount = parseNumeric(molecule.scaleReferenceAmount);
+  const targetAmount = parseNumeric(molecule.scaleTargetAmount);
+  const scaleValid = Boolean(referenceAmount && referenceAmount > 0 && targetAmount && targetAmount > 0 && molecule.scaleUnit.trim());
 
-    if (!referenceRow || !referenceUnit || !normalizedScaleUnit || referenceUnit === normalizedScaleUnit) {
-      return null;
-    }
-
-    return {
-      name: referenceRow.name || "Reference product",
-      unit: referenceRow.unit || referenceRow.scaledUnit,
-    };
-  }, [molecule.name, molecule.referenceProductName, outputRows, scaleUnit]);
-
-  function openEditor(section: ReconstructionSection, row?: ReconstructionRow | null) {
-    setActiveSection(section);
+  function openEditor(
+    section: ReconstructionSection,
+    row?: ReconstructionRow | null,
+    panel: "details" | "dataset" | "notes" = "details",
+  ) {
     setEditorState({
       open: true,
       mode: "advanced",
       section: row?.section ?? section,
       row: row ?? null,
+      panel,
     });
   }
 
   function openAdvancedEditor(section: ReconstructionSection, row?: ReconstructionRow | null) {
-    setActiveSection(section);
-    setEditorState({
-      open: true,
-      mode: "advanced",
-      section: row?.section ?? section,
-      row: row ?? null,
-    });
+    openEditor(section, row, "details");
   }
 
   function closeEditor() {
@@ -613,6 +538,7 @@ export function ReconstructionTable({
       mode: "inline",
       section: current.section,
       row: null,
+      panel: "details",
     }));
   }
 
@@ -630,42 +556,52 @@ export function ReconstructionTable({
     onAutoOpenHandled?.();
   }, [autoOpenSection, onAutoOpenHandled]);
 
+  useEffect(() => {
+    if (!fixRequest) {
+      return;
+    }
+
+    const row = fixRequest.rowId
+      ? molecule.rows.find((candidate) => candidate.id === fixRequest.rowId) ?? null
+      : null;
+    openEditor(fixRequest.section, fixRequest.kind === "row" ? row : null, fixRequest.panel ?? "details");
+    onFixRequestHandled?.();
+  }, [fixRequest, molecule.rows, onFixRequestHandled]);
+
   return (
-    <div className="space-y-5">
-      <section className="panel-surface rounded-lg border border-white/80 p-4 sm:p-5">
-        <div className="flex flex-wrap items-center justify-between gap-3">
+    <div>
+      <section className="flex flex-col bg-white">
+        <div className="flex flex-wrap items-center justify-between gap-3 px-4 pb-2 pt-5 sm:px-6">
           <div>
-            <h2 className="text-2xl font-semibold text-ink">Inventory flows</h2>
-            <div className="mt-1 text-sm text-slate">Enter physical flows first, then match datasets where available.</div>
+            <h2 className="text-lg font-semibold text-ink">{activeSection === "INPUT" ? "Inputs" : "Outputs"}</h2>
           </div>
-          <div className="flex flex-wrap gap-2">
-            <button
-              className="rounded-md bg-ink px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-accent"
-              onClick={() => openEditor("INPUT")}
-              type="button"
-            >
-              Add input
-            </button>
-            <button
-              className="rounded-md bg-ink px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-accent"
-              onClick={() => openEditor("OUTPUT")}
-              type="button"
-            >
-              Add output
-            </button>
+          <div className="flex items-center gap-2">
+          <button
+            aria-label="How inputs and outputs work"
+            className="inline-flex items-center gap-1.5 px-1 py-1 text-xs font-medium text-slate transition hover:text-ink"
+            onClick={() => setHelpOpen(true)}
+            type="button"
+          >
+            <span aria-hidden="true" className="text-[11px]">?</span> How inputs and outputs work
+          </button>
+          {activeSection === "INPUT" ? (
+          <button
+            className="rounded-sm bg-accent px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#ad4141]"
+            onClick={() => openEditor(activeSection)}
+            type="button"
+          >
+            + Add {activeSection === "INPUT" ? "input" : "output"}
+          </button>
+          ) : (
+            <button className="rounded-sm bg-accent px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#ad4141]" onClick={() => openEditor(activeSection)} type="button">+ Add output</button>
+          )}
           </div>
         </div>
 
-        <div className="mt-5 flex flex-wrap items-center gap-2 rounded-lg border border-mist/80 bg-lab p-1">
-          <FlowTab active={activeSection === "INPUT"} count={inputRows.length} label="Inputs" onClick={() => setActiveSection("INPUT")} />
-          <FlowTab active={activeSection === "OUTPUT"} count={outputRows.length} label="Outputs" onClick={() => setActiveSection("OUTPUT")} />
-        </div>
-
-        <div className="mt-4">
+        <div className="px-4 py-4 sm:px-6 sm:py-5">
           <RowTable
             inlineEditor={null}
             molecule={molecule}
-            onAdd={() => openEditor(activeSection)}
             onCancelInlineEditor={closeEditor}
             onDeleteRow={onDeleteRow}
             onOpenAdvancedEditor={openAdvancedEditor}
@@ -678,102 +614,39 @@ export function ReconstructionTable({
             showScaledColumn={scaledColumnVisible}
           />
         </div>
-      </section>
 
-      {activityNotice ? (
-        <div className="rounded-lg border border-accent/20 bg-accent/10 px-4 py-3 text-sm font-semibold text-accent">
-          {activityNotice}
-        </div>
-      ) : null}
-
-      <section className="panel-surface rounded-lg border border-white/80 p-4 sm:p-5">
-        <div className="flex flex-wrap items-center justify-between gap-4">
-          <div>
-            <h2 className="text-xl font-semibold text-ink">Reference basis</h2>
-            {referenceBasisOpen ? (
-              <div className="mt-1 text-sm text-slate">Rescale rows to one consistent activity basis.</div>
-            ) : null}
+        <div className="border-t border-mist/40 px-4 py-3 text-slate sm:px-6">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+              <span className="text-xs font-semibold text-slate">Scale amounts</span>
+              <span className="text-xs text-slate">{molecule.scaleReferenceAmount || "–"} {molecule.scaleUnit || "kg"} → {molecule.scaleTargetAmount || "–"} {molecule.scaleUnit || "kg"}</span>
+            </div>
+            <button className="rounded-sm border border-mist px-3 py-1.5 text-xs font-semibold text-slate transition hover:bg-lab hover:text-ink" onClick={() => setScaleOpen((current) => !current)} type="button">{scaleOpen ? "Done" : "Edit scale"}</button>
           </div>
-          <button
-            className="rounded-md border border-mist/80 bg-white px-4 py-2 text-sm font-semibold text-slate transition hover:border-accent hover:text-accent"
-            onClick={() => setReferenceBasisOpen((current) => !current)}
-            type="button"
-          >
-            {referenceBasisOpen ? "Close" : "Open"}
-          </button>
+          {scaleOpen ? (
+            <div className="mt-3 flex flex-wrap items-end gap-3 border-t border-mist/40 pt-3">
+              <label className="block w-28"><span className="text-xs text-slate">Recorded</span><input aria-invalid={referenceAmount === null || referenceAmount <= 0} className="mt-1 h-9 w-full rounded-sm border border-mist bg-white px-3 text-sm text-ink outline-none focus:border-slate" inputMode="decimal" onChange={(event) => onUpdateScaleField("scaleReferenceAmount", event.target.value)} value={molecule.scaleReferenceAmount} /></label>
+              <label className="block w-28"><span className="text-xs text-slate">Target</span><input aria-invalid={targetAmount === null || targetAmount <= 0} className="mt-1 h-9 w-full rounded-sm border border-mist bg-white px-3 text-sm text-ink outline-none focus:border-slate" inputMode="decimal" onChange={(event) => onUpdateScaleField("scaleTargetAmount", event.target.value)} value={molecule.scaleTargetAmount} /></label>
+              <label className="block w-24"><span className="text-xs text-slate">Unit</span><input className="mt-1 h-9 w-full rounded-sm border border-mist bg-white px-3 text-sm text-ink outline-none focus:border-slate" onChange={(event) => onUpdateScaleField("scaleUnit", event.target.value)} value={molecule.scaleUnit} /></label>
+              <button className="h-9 rounded-sm border border-mist px-3 text-xs font-semibold text-ink transition hover:bg-lab disabled:cursor-not-allowed disabled:opacity-40" disabled={!scaleValid} onClick={() => { onRescale(); setScaledColumnVisible(true); }} type="button">Recalculate</button>
+              {!scaleValid ? <span className="pb-2 text-xs text-alert">Enter positive amounts and a unit.</span> : null}
+            </div>
+          ) : null}
         </div>
 
-        {referenceBasisOpen ? (
-          <>
-            {referenceProductUnitMismatch ? (
-              <div className="mt-4 rounded-lg border border-alert/25 bg-alert/10 px-4 py-3 text-sm leading-6 text-alert">
-                <div className="font-semibold">Unit check failed</div>
-                <div>
-                  The reference product row uses {referenceProductUnitMismatch.unit}, while the activity scale unit is{" "}
-                  {scaleUnit}. Align them before using rescaled values for comparison.
-                </div>
-              </div>
-            ) : null}
-
-            <div className="mt-4 grid gap-4 lg:grid-cols-3">
-              <label className="block">
-                <span className="text-sm font-medium text-ink">Reference amount</span>
-                <input
-                  className="mt-2 w-full rounded-lg border border-mist bg-lab px-4 py-3 text-sm text-ink outline-none transition focus:border-accent"
-                  onChange={(event) => onUpdateScaleField("scaleReferenceAmount", event.target.value)}
-                  value={molecule.scaleReferenceAmount}
-                />
-              </label>
-              <label className="block">
-                <span className="text-sm font-medium text-ink">Target amount</span>
-                <input
-                  className="mt-2 w-full rounded-lg border border-mist bg-lab px-4 py-3 text-sm text-ink outline-none transition focus:border-accent"
-                  onChange={(event) => onUpdateScaleField("scaleTargetAmount", event.target.value)}
-                  value={molecule.scaleTargetAmount}
-                />
-              </label>
-              <label className="block">
-                <span className="text-sm font-medium text-ink">Unit</span>
-                <input
-                  className="mt-2 w-full rounded-lg border border-mist bg-lab px-4 py-3 text-sm text-ink outline-none transition focus:border-accent"
-                  onChange={(event) => onUpdateScaleField("scaleUnit", event.target.value)}
-                  value={molecule.scaleUnit}
-                />
-              </label>
-            </div>
-
-            <div className="mt-4 flex flex-wrap gap-2">
-              <button
-                className="rounded-md border border-mist/80 bg-white/80 px-4 py-2 text-sm font-semibold text-slate transition hover:border-accent hover:text-accent"
-                onClick={() => setPasDialogOpen(true)}
-                type="button"
-              >
-                PAS defaults
-              </button>
-              <button
-                className="rounded-md bg-accent px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-ink"
-                onClick={() => {
-                  onRescale();
-                  setScaledColumnVisible(true);
-                }}
-                type="button"
-              >
-                Rescale rows
-              </button>
-            </div>
-          </>
-        ) : null}
       </section>
 
       <RowEditorDialog
         currentMolecule={molecule}
         initialRow={editorState.row}
+        initialPanel={editorState.panel}
         onClose={() =>
           setEditorState({
             open: false,
             mode: "inline",
             section: editorState.section,
             row: null,
+            panel: "details",
           })
         }
         onSave={(values, rowId) => {
@@ -783,35 +656,53 @@ export function ReconstructionTable({
             mode: "inline",
             section: editorState.section,
             row: null,
+            panel: "details",
           });
         }}
         onCreateChildFromRow={(rowId, values, draft) => {
           onSaveRow(editorState.section, { ...values, section: editorState.section }, rowId);
-          setEditorState({
-            open: false,
-            mode: "inline",
-            section: editorState.section,
-            row: null,
-          });
-          setActivityNotice("Activity created");
-          window.setTimeout(() => setActivityNotice(""), 3000);
-          onCreateChildFromRow(rowId, { ...values, section: editorState.section }, draft);
+          return onCreateChildFromRow(rowId, { ...values, section: editorState.section }, draft);
         }}
+        onImportActivityFromFile={onImportActivityFromFile}
+        onOpenMolecule={onOpenMolecule}
         open={editorState.open && editorState.mode === "advanced"}
         project={project}
         section={editorState.section}
       />
 
-      <PasDefaultsDialog
-        open={pasDialogOpen}
-        referenceAmount={molecule.scaleReferenceAmount}
-        scaleUnit={molecule.scaleUnit}
-        onApply={(profile) => {
-          onApplyPasDefaults(profile);
-          setPasDialogOpen(false);
-        }}
-        onClose={() => setPasDialogOpen(false)}
-      />
+      {helpOpen
+        ? createPortal(
+            <div className="fixed inset-0 z-[70] flex items-center justify-center bg-ink/70 px-4 py-6 backdrop-blur-md">
+              <section
+                aria-labelledby="inventory-help-title"
+                aria-modal="true"
+                className="hero-surface max-h-[calc(100dvh-3rem)] w-full max-w-3xl overflow-y-auto rounded-xl border border-white/70 p-5 shadow-2xl sm:p-6"
+                role="dialog"
+              >
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <h3 className="text-2xl font-semibold text-ink" id="inventory-help-title">Define this activity’s inputs and outputs</h3>
+                    <p className="mt-2 max-w-2xl text-sm leading-6 text-helper">
+                      Use this page to record everything the activity uses and everything it creates. The product or service named when the activity was created is already added as its main output. Add further outputs only when they are relevant, such as waste, co-products, or direct emissions.
+                    </p>
+                  </div>
+                  <button
+                    aria-label="Close inputs and outputs help"
+                    className="grid h-9 w-9 shrink-0 place-items-center rounded-md border border-mist text-lg text-slate transition hover:border-alert hover:text-alert"
+                    onClick={() => setHelpOpen(false)}
+                    type="button"
+                  >
+                    ×
+                  </button>
+                </div>
+                <div className="mx-auto mt-4 max-w-[34rem] rounded-lg border border-mist bg-lab/40 p-3">
+                  <ActivityFlowDiagram />
+                </div>
+              </section>
+            </div>,
+            document.body,
+          )
+        : null}
     </div>
   );
 }

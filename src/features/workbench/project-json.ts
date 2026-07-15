@@ -132,6 +132,13 @@ function migrateRow(value: unknown): Partial<ReconstructionRow> {
     reactionValue: asString(record.reactionValue),
     cleaningValue: asString(record.cleaningValue),
     totalValue: asString(record.totalValue),
+    uncertaintyEnabled: Boolean(record.uncertaintyEnabled),
+    minimumValue: asString(record.minimumValue),
+    maximumValue: asString(record.maximumValue),
+    amountSource:
+      record.amountSource === "measured" || record.amountSource === "calculated" || record.amountSource === "estimated"
+        ? record.amountSource
+        : "",
     unit: asString(record.unit || "kg"),
     totalScaledValue: asString(record.totalScaledValue),
     scaledUnit: asString(record.scaledUnit || record.unit || "kg"),
@@ -386,6 +393,35 @@ function validateNormalizedProject(project: ProjectRecord) {
     }
   }
 
+  const visitedMolecules = new Set<string>();
+  const activePath = new Set<string>();
+  let cycleFound = false;
+  const visitDependencies = (moleculeId: string) => {
+    if (cycleFound || activePath.has(moleculeId)) {
+      cycleFound = true;
+      return;
+    }
+    if (visitedMolecules.has(moleculeId)) {
+      return;
+    }
+
+    activePath.add(moleculeId);
+    for (const link of project.links) {
+      if (link.parentMoleculeId === moleculeId) {
+        visitDependencies(link.childMoleculeId);
+      }
+    }
+    activePath.delete(moleculeId);
+    visitedMolecules.add(moleculeId);
+  };
+
+  for (const molecule of project.molecules) {
+    visitDependencies(molecule.id);
+  }
+  if (cycleFound) {
+    errors.push("Circular activity dependencies are not allowed.");
+  }
+
   if (errors.length > 0) {
     throw new Error(`Project JSON validation failed:\n- ${errors.join("\n- ")}`);
   }
@@ -437,6 +473,10 @@ function stripProjectForExport(project: ProjectRecord): ProjectRecord {
         reactionValue: row.reactionValue,
         cleaningValue: row.cleaningValue,
         totalValue: row.totalValue,
+        uncertaintyEnabled: row.uncertaintyEnabled,
+        minimumValue: row.minimumValue,
+        maximumValue: row.maximumValue,
+        amountSource: row.amountSource,
         unit: row.unit,
         totalScaledValue: row.totalScaledValue,
         scaledUnit: row.scaledUnit,

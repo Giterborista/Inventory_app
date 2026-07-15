@@ -25,8 +25,11 @@ coverage
 .venv
 tsconfig.tsbuildinfo
 __pycache__/
+.tmp-spreadsheet/
+tmp-debug-keys.ts
 .playwright-mcp/
 Proxy_JSON_Troubleshooting/
+# Local openLCA database, exports, and generated packages.
 OpenLCA/
 outputs/
 tmp/

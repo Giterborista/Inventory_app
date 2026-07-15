@@ -22,7 +22,17 @@ export type InventoryReviewState = "ok" | "warning" | "alert";
 export type InventoryReviewIssue = {
   label: string;
   state: Exclude<InventoryReviewState, "ok">;
+  target: "row-details" | "row-background" | "linked-activity" | "add-input" | "documentation" | "reference-output";
+  rowId?: string;
+  rowName?: string;
+  section?: ReconstructionRow["section"];
+  linkedMoleculeId?: string;
 };
+
+function parseReviewNumber(value: string) {
+  const parsed = Number(value.replace(",", ".").trim());
+  return Number.isFinite(parsed) ? parsed : null;
+}
 
 export function getMoleculeById(project: ProjectRecord, moleculeId: string | null) {
   if (!moleculeId) {
@@ -82,7 +92,9 @@ export function getReferenceProductRow(molecule: MoleculeRecord) {
         row.order === 1 &&
         row.name.trim() === referenceProductName.trim(),
     ) ??
-    molecule.rows.find((row) => row.section === "OUTPUT") ??
+    molecule.rows.find(
+      (row) => row.section === "OUTPUT" && row.name.trim() === referenceProductName.trim(),
+    ) ??
     null
   );
 }
@@ -92,8 +104,13 @@ export function hasReferenceOutput(molecule: MoleculeRecord | null) {
 }
 
 export function isReferenceProductRow(molecule: MoleculeRecord, row: ReconstructionRow) {
-  const referenceProductName = molecule.referenceProductName || molecule.name;
-  return row.section === "OUTPUT" && row.order === 1 && row.name.trim() === referenceProductName.trim();
+  return getReferenceProductRow(molecule)?.id === row.id;
+}
+
+export function hasEcoinventDatasetConnection(row: ReconstructionRow) {
+  return Boolean(
+    row.ecoinventDatasetId.trim() || row.ecoinventDatasetUuid.trim(),
+  );
 }
 
 export function getRowInventoryReviewIssues(
@@ -103,40 +120,79 @@ export function getRowInventoryReviewIssues(
 ): InventoryReviewIssue[] {
   const linkedMolecule = getLinkedMolecule(project, row);
   const referenceOutput = isReferenceProductRow(molecule, row);
+  const hasDatasetConnection = hasEcoinventDatasetConnection(row);
   const issues: InventoryReviewIssue[] = [];
 
-  if (!row.totalValue.trim() && !referenceOutput) {
-    issues.push({ label: "Missing amount", state: "warning" });
+  if (!row.unit.trim()) {
+    issues.push({ label: referenceOutput ? "Missing reference unit" : "Missing unit", state: referenceOutput ? "alert" : "warning", target: "row-details", rowId: row.id, rowName: row.name, section: row.section });
+  }
+
+  if (referenceOutput) {
+    const referenceAmount = parseReviewNumber(row.totalValue);
+    if (!row.totalValue.trim()) {
+      issues.push({ label: "Missing reference amount", state: "alert", target: "row-details", rowId: row.id, rowName: row.name, section: row.section });
+    } else if (referenceAmount === null || referenceAmount <= 0) {
+      issues.push({ label: "Invalid reference amount", state: "alert", target: "row-details", rowId: row.id, rowName: row.name, section: row.section });
+    }
+  } else if (!row.totalValue.trim()) {
+    issues.push({ label: "Missing amount", state: "warning", target: "row-details", rowId: row.id, rowName: row.name, section: row.section });
   }
 
   if (linkedMolecule && !hasReferenceOutput(linkedMolecule)) {
-    issues.push({ label: "Missing linked output", state: "alert" });
+    issues.push({ label: "Linked activity has no output", state: "alert", target: "linked-activity", rowId: row.id, rowName: row.name, section: row.section, linkedMoleculeId: linkedMolecule.id });
   }
 
-  if (!referenceOutput && !linkedMolecule && row.ecoinventStatus === "missing") {
-    issues.push({ label: "Disconnected item", state: "alert" });
-  }
-
-  if (
+  if (!referenceOutput && !linkedMolecule && !hasDatasetConnection) {
+    issues.push({ label: "No dataset connection", state: "alert", target: "row-background", rowId: row.id, rowName: row.name, section: row.section });
+  } else if (
     !referenceOutput &&
     !linkedMolecule &&
     (row.ecoinventStatus === "unchecked" || row.ecoinventStatus === "in_progress")
   ) {
-    issues.push({ label: "Needs check", state: "warning" });
+    issues.push({ label: "Review the selected dataset", state: "warning", target: "row-background", rowId: row.id, rowName: row.name, section: row.section });
   }
 
   return issues;
+}
+
+export function getMoleculeInventoryReviewIssues(
+  project: ProjectRecord,
+  molecule: MoleculeRecord,
+): InventoryReviewIssue[] {
+  const issues = molecule.rows.flatMap((row) => getRowInventoryReviewIssues(project, molecule, row));
+
+  if (!hasReferenceOutput(molecule)) {
+    issues.push({ label: "Add the activity's main output", state: "alert", target: "reference-output", section: "OUTPUT" });
+  }
+
+  if (!molecule.rows.some((row) => row.section === "INPUT")) {
+    issues.push({ label: "Add the first input", state: "warning", target: "add-input", section: "INPUT" });
+  }
+
+  const documentationComplete = Boolean(
+    molecule.documentation.referenceAndScope.trim() && molecule.documentation.calculationNotes.trim(),
+  );
+  if (!documentationComplete) {
+    issues.push({ label: "Add activity context and traceability", state: "warning", target: "documentation" });
+  }
+
+  return issues.filter(
+    (issue, index, allIssues) =>
+      allIssues.findIndex(
+        (candidate) =>
+          candidate.label === issue.label &&
+          candidate.state === issue.state &&
+          candidate.rowId === issue.rowId &&
+          candidate.target === issue.target,
+      ) === index,
+  );
 }
 
 export function getMoleculeInventoryReviewState(
   project: ProjectRecord,
   molecule: MoleculeRecord,
 ): InventoryReviewState {
-  const issues = molecule.rows.flatMap((row) => getRowInventoryReviewIssues(project, molecule, row));
-
-  if (!hasReferenceOutput(molecule)) {
-    issues.push({ label: "Missing reference output", state: "alert" });
-  }
+  const issues = getMoleculeInventoryReviewIssues(project, molecule);
 
   if (issues.some((issue) => issue.state === "alert")) {
     return "alert";

@@ -68,6 +68,8 @@ type MoleculeFieldValue =
   | ReviewStatus
   | boolean;
 
+const WATER_KG_PER_M3 = 1000;
+
 function updateMolecules(
   state: WorkbenchState,
   updater: (molecules: MoleculeRecord[]) => MoleculeRecord[],
@@ -109,6 +111,32 @@ function parseNumericValue(value: string | number | null | undefined) {
 
   const parsed = Number(normalized);
   return Number.isFinite(parsed) ? parsed : null;
+}
+
+function wouldCreateDependencyCycle(project: ProjectRecord, parentMoleculeId: string, childMoleculeId: string) {
+  if (parentMoleculeId === childMoleculeId) {
+    return true;
+  }
+
+  const visited = new Set<string>();
+  const pending = [childMoleculeId];
+  while (pending.length > 0) {
+    const candidateId = pending.pop();
+    if (!candidateId || visited.has(candidateId)) {
+      continue;
+    }
+    if (candidateId === parentMoleculeId) {
+      return true;
+    }
+    visited.add(candidateId);
+    for (const link of project.links) {
+      if (link.parentMoleculeId === candidateId) {
+        pending.push(link.childMoleculeId);
+      }
+    }
+  }
+
+  return false;
 }
 
 function formatScaledValue(value: number) {
@@ -253,14 +281,17 @@ function createLinkedInputRow(
 }
 
 function createReferenceOutputRowFromDraft(draft: MoleculeDraft, unit = "kg") {
+  const referenceAmount = draft.referenceAmount?.trim() || "1";
+  const referenceUnit = draft.referenceUnit?.trim() || unit || "kg";
+
   return createBlankRow("OUTPUT", 1, {
     objectKind: "generic_object",
     name: draft.referenceProductName || draft.name || "Reference output",
     synonyms: [],
-    unit: "",
-    totalValue: "",
-    totalScaledValue: "",
-    scaledUnit: "",
+    unit: referenceUnit,
+    totalValue: referenceAmount,
+    totalScaledValue: referenceAmount,
+    scaledUnit: referenceUnit,
     cas: "",
     iupac: "",
     smiles: "",
@@ -288,6 +319,23 @@ function createReferenceOutputRowFromInputRow(row: ReconstructionRow) {
     rawEcoinventStatus: row.rawEcoinventStatus,
     ecoinventName: row.ecoinventName,
   });
+}
+
+function hasNamedReferenceOutput(molecule: MoleculeRecord) {
+  const referenceProductName = (molecule.referenceProductName || molecule.name).trim();
+  return molecule.rows.some(
+    (row) => row.section === "OUTPUT" && row.name.trim() === referenceProductName,
+  );
+}
+
+function addReferenceOutputFromInputRow(molecule: MoleculeRecord, inputRow: ReconstructionRow) {
+  const inputRows = molecule.rows.filter((row) => row.section === "INPUT");
+  const existingOutputRows = molecule.rows
+    .filter((row) => row.section === "OUTPUT")
+    .sort((left, right) => left.order - right.order)
+    .map((row, index) => ({ ...row, order: index + 2 }));
+
+  return [...inputRows, createReferenceOutputRowFromInputRow(inputRow), ...existingOutputRows];
 }
 
 function documentationHasContent(documentation: DocumentationRecord) {
@@ -872,6 +920,7 @@ export function createMolecule(
     sourceRowId?: string;
     childMoleculeId?: string;
     navigateToNew?: boolean;
+    newMoleculeId?: string;
   },
 ): WorkbenchState {
   const importSessionId = state.project.importSessions.at(-1)?.id ?? "manual";
@@ -886,6 +935,7 @@ export function createMolecule(
         }
       : draft,
     importSessionId,
+    options?.newMoleculeId,
   );
   let nextState = updateMolecules(state, (molecules) => {
     const maxRootOrder = molecules.reduce((max, molecule) => Math.max(max, molecule.rootOrder || 0), 0);
@@ -1110,7 +1160,7 @@ export function setMoleculeTopLevel(state: WorkbenchState, moleculeId: string, t
 }
 
 export function addManualParentLink(state: WorkbenchState, moleculeId: string, parentMoleculeId: string): WorkbenchState {
-  if (moleculeId === parentMoleculeId) {
+  if (wouldCreateDependencyCycle(state.project, parentMoleculeId, moleculeId)) {
     return state;
   }
 
@@ -1320,13 +1370,13 @@ export function ensureLinkedObjectReferenceOutput(
   }
 
   return updateOneMolecule(state, linkedMoleculeId, (linkedMolecule) => {
-    if (linkedMolecule.rows.some((row) => row.section === "OUTPUT")) {
+    if (hasNamedReferenceOutput(linkedMolecule)) {
       return linkedMolecule;
     }
 
     return {
       ...linkedMolecule,
-      rows: [...linkedMolecule.rows, createReferenceOutputRowFromInputRow(inputRow)],
+      rows: addReferenceOutputFromInputRow(linkedMolecule, inputRow),
     };
   });
 }
@@ -1344,7 +1394,7 @@ export function ensureLinkedObjectReferenceOutputs(state: WorkbenchState): Workb
 
   let changed = false;
   const nextMolecules = state.project.molecules.map((molecule) => {
-    if (molecule.rows.some((row) => row.section === "OUTPUT")) {
+    if (hasNamedReferenceOutput(molecule)) {
       return molecule;
     }
 
@@ -1356,7 +1406,7 @@ export function ensureLinkedObjectReferenceOutputs(state: WorkbenchState): Workb
     changed = true;
     return {
       ...molecule,
-      rows: [...molecule.rows, createReferenceOutputRowFromInputRow(incomingRow)],
+      rows: addReferenceOutputFromInputRow(molecule, incomingRow),
       updatedAt: nowIso(),
     };
   });
@@ -1452,7 +1502,19 @@ export function saveReconstructionRow(
   values: Partial<ReconstructionRow>,
   rowId?: string,
 ): WorkbenchState {
-  return updateOneMolecule(state, moleculeId, (molecule) => {
+  if (
+    values.linkedMoleculeId &&
+    wouldCreateDependencyCycle(state.project, moleculeId, values.linkedMoleculeId)
+  ) {
+    return state;
+  }
+
+  const previousLinkedMoleculeId = rowId
+    ? state.project.molecules
+        .find((molecule) => molecule.id === moleculeId)
+        ?.rows.find((row) => row.id === rowId)?.linkedMoleculeId ?? null
+    : null;
+  const nextState = updateOneMolecule(state, moleculeId, (molecule) => {
     const existingRow = rowId ? molecule.rows.find((row) => row.id === rowId) : null;
     const isReferenceProductRow =
       Boolean(existingRow) &&
@@ -1469,10 +1531,13 @@ export function saveReconstructionRow(
           synonyms: [],
         }
       : values;
+    const originalQuantity = deriveTotalValue(effectiveValues);
+    const effectiveReferenceAmount = isReferenceProductRow
+      ? parseNumericValue(originalQuantity)
+      : parseNumericValue(molecule.scaleReferenceAmount);
     const factor =
       (parseNumericValue(molecule.scaleTargetAmount) ?? 1) /
-      Math.max(parseNumericValue(molecule.scaleReferenceAmount) ?? 1, Number.EPSILON);
-    const originalQuantity = deriveTotalValue(effectiveValues);
+      Math.max(effectiveReferenceAmount ?? 1, Number.EPSILON);
     const scaledQuantity =
       effectiveValues.totalScaledValue ??
       (() => {
@@ -1500,7 +1565,7 @@ export function saveReconstructionRow(
       };
     }
 
-    return {
+    const nextMolecule = {
       ...molecule,
       rows: molecule.rows.map((row) =>
         row.id === rowId
@@ -1521,7 +1586,66 @@ export function saveReconstructionRow(
           : row,
       ),
     };
+
+    if (!isReferenceProductRow) {
+      return nextMolecule;
+    }
+
+    return {
+      ...nextMolecule,
+      scaleReferenceAmount: originalQuantity || molecule.scaleReferenceAmount,
+      scaleTargetAmount: molecule.scaleTargetAmount || originalQuantity || "1",
+      scaleUnit: String(effectiveValues.unit || molecule.scaleUnit || "kg"),
+    };
   });
+
+  const linkedMoleculeChanged =
+    Boolean(rowId && previousLinkedMoleculeId) &&
+    values.linkedMoleculeId !== undefined &&
+    values.linkedMoleculeId !== previousLinkedMoleculeId;
+
+  if (!linkedMoleculeChanged || !rowId || !previousLinkedMoleculeId) {
+    return nextState;
+  }
+
+  const removedLinks = nextState.project.links.filter(
+    (link) =>
+      link.parentMoleculeId === moleculeId &&
+      link.childMoleculeId === previousLinkedMoleculeId &&
+      (link.sourceRowId === rowId || link.sourceRowId === null),
+  );
+  const removedLinkIds = new Set(removedLinks.map((link) => link.id));
+  const remainingLinks = nextState.project.links.filter((link) => !removedLinkIds.has(link.id));
+  const previousChildStillLinked = remainingLinks.some(
+    (link) => link.childMoleculeId === previousLinkedMoleculeId,
+  );
+  const molecules = nextState.project.molecules.map((molecule) => {
+    if (molecule.id === moleculeId) {
+      return {
+        ...molecule,
+        childLinkIds: molecule.childLinkIds.filter((id) => !removedLinkIds.has(id)),
+      };
+    }
+    if (molecule.id === previousLinkedMoleculeId) {
+      return {
+        ...molecule,
+        parentLinkIds: molecule.parentLinkIds.filter((id) => !removedLinkIds.has(id)),
+        topLevel: previousChildStillLinked ? molecule.topLevel : true,
+      };
+    }
+    return molecule;
+  });
+
+  return {
+    ...nextState,
+    project: touchProject(
+      {
+        ...nextState.project,
+        links: remainingLinks,
+      },
+      molecules,
+    ),
+  };
 }
 
 export function updateReconstructionRow(
@@ -1587,8 +1711,8 @@ export function applyPasDefaults(
         totalScaledValue: getScaledQuantity(molecule, defaults.electricityKwhPerKg * referenceAmount),
         scaledUnit: "kWh",
         reference: PAS_REFERENCE_LABEL,
-        ecoinventStatus: "present",
-        rawEcoinventStatus: "Y",
+        ecoinventStatus: "unchecked",
+        rawEcoinventStatus: "Not checked",
         ecoinventName: PAS_DEFAULT_ECOINVENT_NAMES.electricity,
       },
       {
@@ -1598,8 +1722,8 @@ export function applyPasDefaults(
         totalScaledValue: getScaledQuantity(molecule, defaults.heatMjPerKg * referenceAmount),
         scaledUnit: "MJ",
         reference: PAS_REFERENCE_LABEL,
-        ecoinventStatus: "present",
-        rawEcoinventStatus: "Y",
+        ecoinventStatus: "unchecked",
+        rawEcoinventStatus: "Not checked",
         ecoinventName: PAS_DEFAULT_ECOINVENT_NAMES.heat,
         notes: "Default PAS proxy heat dataset for industrial chemical production.",
       },
@@ -1613,8 +1737,8 @@ export function applyPasDefaults(
         ),
         scaledUnit: "kg",
         reference: PAS_REFERENCE_LABEL,
-        ecoinventStatus: "present",
-        rawEcoinventStatus: "Y",
+        ecoinventStatus: "unchecked",
+        rawEcoinventStatus: "Not checked",
         ecoinventName: PAS_DEFAULT_ECOINVENT_NAMES.steam,
         notes: "Converted from MJ to kg steam using 2.75 MJ/kg.",
       },
@@ -1629,6 +1753,7 @@ export function applyPasDefaults(
       }
       return sum + (toMassKg(row.totalValue, row.unit) ?? 0);
     }, 0);
+    const wastewaterAmountM3 = wastewaterAmountKg / WATER_KG_PER_M3;
 
     const hazardousAmountKg = inputRows.reduce((sum, row) => {
       if (isWaterLikeRow(row) || isPasUtilityRow(row)) {
@@ -1640,14 +1765,15 @@ export function applyPasDefaults(
     const outputRows: Array<Partial<ReconstructionRow> & { name: string }> = [
       {
         name: "Wastewater treatment",
-        totalValue: formatScaledValue(wastewaterAmountKg),
-        unit: "kg",
-        totalScaledValue: getScaledQuantity(molecule, wastewaterAmountKg),
-        scaledUnit: "kg",
+        totalValue: formatScaledValue(wastewaterAmountM3),
+        unit: "m3",
+        totalScaledValue: getScaledQuantity(molecule, wastewaterAmountM3),
+        scaledUnit: "m3",
         reference: "Automatic from water inputs",
-        ecoinventStatus: "present",
-        rawEcoinventStatus: "Y",
+        ecoinventStatus: "unchecked",
+        rawEcoinventStatus: "Not checked",
         ecoinventName: PAS_DEFAULT_ECOINVENT_NAMES.wastewater,
+        notes: "Calculated from water input mass using 1000 kg/m3.",
       },
       {
         name: "Hazardous waste incineration",
@@ -1656,8 +1782,8 @@ export function applyPasDefaults(
         totalScaledValue: getScaledQuantity(molecule, hazardousAmountKg),
         scaledUnit: "kg",
         reference: "Automatic from non-utility mass inputs",
-        ecoinventStatus: "present",
-        rawEcoinventStatus: "Y",
+        ecoinventStatus: "unchecked",
+        rawEcoinventStatus: "Not checked",
         ecoinventName: PAS_DEFAULT_ECOINVENT_NAMES.hazardous,
       },
     ];

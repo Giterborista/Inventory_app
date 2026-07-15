@@ -4,12 +4,15 @@ import { useState } from "react";
 
 import { DocumentationPanel } from "@/features/workbench/components/documentation-panel";
 import { ReconstructionTable } from "@/features/workbench/components/reconstruction-table";
+import type { InventoryFixRequest } from "@/features/workbench/components/reconstruction-table";
 import { WorkspaceNavigator } from "@/features/workbench/components/workspace-navigator";
 import type { PasProfile } from "@/features/workbench/pas-defaults";
+import { getMoleculeInventoryReviewIssues } from "@/features/workbench/selectors";
+import type { InventoryReviewIssue } from "@/features/workbench/selectors";
 import type {
   DocumentationRecord,
-  MoleculeRecord,
   MoleculeDraft,
+  MoleculeRecord,
   ProjectRecord,
   ReconstructionRow,
   ReconstructionSection,
@@ -23,6 +26,7 @@ type ObjectInventoryProps = {
   onDelete: () => void;
   onSaveProjectJson: () => void;
   onOpenMolecule: (moleculeId: string) => void;
+  onOpenMoleculeForFix: (moleculeId: string, section: ReconstructionSection) => void;
   onUpdateMoleculeField: (
     field:
       | "activityType"
@@ -53,38 +57,34 @@ type ObjectInventoryProps = {
     rowId: string,
     values: Partial<ReconstructionRow> & { section: "INPUT" | "OUTPUT" },
     draft: Partial<MoleculeDraft>,
-  ) => void;
+  ) => string;
+  onImportActivityFromFile: (file: File, rowId: string, values: Partial<ReconstructionRow> & { section: ReconstructionSection }) => Promise<void>;
   onApplyPasDefaults: (profile: PasProfile) => void;
   onRescaleRows: () => void;
   autoOpenRowEditor?: ReconstructionSection | null;
   onAutoOpenRowEditorHandled?: () => void;
 };
 
-type ActivityWorkspaceTab = "inventory" | "documentation";
+type ActivityWorkspaceTab = "inputs" | "outputs" | "documentation";
 
-function WorkflowButton({
+function WorkspaceTab({
   active,
   label,
-  meta,
   onClick,
 }: {
   active: boolean;
   label: string;
-  meta: string;
   onClick: () => void;
 }) {
   return (
     <button
-      className={`w-full rounded-lg border px-3 py-3 text-left transition ${
-        active
-          ? "border-white bg-white text-ink shadow-sm"
-          : "border-white/12 bg-white/8 text-white/72 hover:bg-white/12 hover:text-white"
+      className={`h-10 border-b-2 px-3 text-sm font-semibold transition sm:px-4 ${
+        active ? "border-[#e2e6eb] text-ink" : "border-transparent text-slate hover:text-ink"
       }`}
       onClick={onClick}
       type="button"
     >
-      <span className="block text-sm font-semibold">{label}</span>
-      <span className={`mt-1 block text-xs ${active ? "text-slate" : "text-white/52"}`}>{meta}</span>
+      <span>{label}</span>
     </button>
   );
 }
@@ -96,137 +96,210 @@ export function ObjectInventory({
   onDelete,
   onSaveProjectJson,
   onOpenMolecule,
+  onOpenMoleculeForFix,
   onUpdateMoleculeField,
   onUpdateDocumentation,
   onDeleteRow,
   onSaveRow,
   onCreateChildFromRow,
+  onImportActivityFromFile,
   onApplyPasDefaults,
   onRescaleRows,
   autoOpenRowEditor,
   onAutoOpenRowEditorHandled,
 }: ObjectInventoryProps) {
-  const [activeTab, setActiveTab] = useState<ActivityWorkspaceTab>("inventory");
+  const [activeTab, setActiveTab] = useState<ActivityWorkspaceTab>("inputs");
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [fixRequest, setFixRequest] = useState<InventoryFixRequest | null>(null);
+  const [documentationFocusRequest, setDocumentationFocusRequest] = useState(0);
   const referenceProductName = molecule.referenceProductName || molecule.name;
   const activityType = molecule.activityType || "Production of";
-  const activityLabel = `${activityType} ${referenceProductName || "untitled reference product"}`.trim();
+  const activityLabel = `${activityType} ${referenceProductName || "untitled product or service"}`.trim();
   const inputCount = molecule.rows.filter((row) => row.section === "INPUT").length;
   const outputCount = molecule.rows.filter((row) => row.section === "OUTPUT").length;
-  const uncheckedCount = molecule.rows.filter((row) => row.ecoinventStatus === "unchecked").length;
-  const documentationDone = Boolean(
-    molecule.notes.trim() ||
-      molecule.documentation.referenceAndScope.trim() ||
-      molecule.documentation.functionalUnit.trim() ||
-      molecule.documentation.pasAssumptions.trim() ||
-      molecule.documentation.calculationNotes.trim(),
-  );
+  const reviewIssues = getMoleculeInventoryReviewIssues(project, molecule);
+
+  function focusIssue(issue: InventoryReviewIssue) {
+    if (issue.target === "documentation") {
+      setActiveTab("documentation");
+      setDocumentationFocusRequest((current) => current + 1);
+      return;
+    }
+
+    if (issue.target === "linked-activity" && issue.linkedMoleculeId) {
+      onOpenMoleculeForFix(issue.linkedMoleculeId, "OUTPUT");
+      return;
+    }
+
+    setActiveTab(issue.section === "OUTPUT" || issue.target === "reference-output" ? "outputs" : "inputs");
+    setFixRequest({
+      key: Date.now(),
+      kind: issue.rowId ? "row" : "add",
+      section: issue.section ?? (issue.target === "reference-output" ? "OUTPUT" : "INPUT"),
+      rowId: issue.rowId,
+      panel: issue.target === "row-background" ? "dataset" : "details",
+    });
+  }
 
   return (
-    <main className="min-h-screen px-4 py-5 text-ink sm:px-6 lg:px-8">
-      <div className="mx-auto grid max-w-[112rem] gap-6 lg:grid-cols-[19rem_minmax(0,1fr)]">
-        <div className="space-y-4 lg:sticky lg:top-5 lg:self-start">
+    <main className="min-h-screen bg-transparent px-3 py-3 text-ink sm:px-4 sm:py-4">
+      <div className="mx-auto grid max-w-[112rem] gap-3 lg:grid-cols-[17rem_minmax(0,1fr)]">
+        <div className="lg:sticky lg:top-4 lg:h-[calc(100vh-2rem)] lg:self-start">
           <WorkspaceNavigator
             onBack={onBack}
             onOpenMolecule={onOpenMolecule}
             project={project}
             selectedMoleculeId={molecule.id}
-          >
-            <div className="text-xs font-semibold uppercase tracking-[0.14em] text-white/50">Work on this activity</div>
-            <div className="mt-3 space-y-2">
-              <WorkflowButton
-                active={activeTab === "inventory"}
-                label="Inventory flows"
-                meta={`${inputCount} input${inputCount === 1 ? "" : "s"} / ${outputCount} output${outputCount === 1 ? "" : "s"}`}
-                onClick={() => setActiveTab("inventory")}
-              />
-              <WorkflowButton
-                active={activeTab === "documentation"}
-                label="Documentation"
-                meta={documentationDone ? "Evidence started" : "Needs source notes"}
-                onClick={() => setActiveTab("documentation")}
-              />
-            </div>
-          </WorkspaceNavigator>
+          />
         </div>
 
-        <div className="min-w-0 space-y-6">
-          <section className="panel-surface rounded-lg border border-mist p-4 sm:p-5">
-            <div className="flex flex-wrap items-start justify-between gap-6">
+        <div className="workspace-shell min-w-0 self-start overflow-hidden rounded-xl border border-mist/60 bg-white">
+          <header className="bg-white">
+            <div className="relative px-5 py-4 pr-16 sm:px-6 sm:pr-16">
+              <button
+                aria-label={`Delete activity ${activityLabel}`}
+                className="absolute right-5 top-4 grid h-9 w-9 place-items-center rounded-md border border-transparent text-slate transition hover:border-alert/25 hover:bg-alert/10 hover:text-alert focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-alert/40 sm:right-6"
+                onClick={onDelete}
+                title="Delete activity"
+                type="button"
+              >
+                <svg aria-hidden="true" fill="none" height="18" viewBox="0 0 24 24" width="18">
+                  <path d="M4 7h16M9 7V4h6v3m-8 0 1 13h8l1-13M10 11v5m4-5v5" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" />
+                </svg>
+              </button>
               <div className="min-w-0 flex-1">
-                <div className="text-xs font-semibold text-slate">Activity</div>
-                <h1 className="mt-1 max-w-5xl break-words text-2xl font-semibold text-ink md:text-3xl">
-                  {activityLabel}
-                </h1>
-                <div className="mt-2 text-sm text-slate">
-                  {inputCount} input{inputCount === 1 ? "" : "s"} / {outputCount} output{outputCount === 1 ? "" : "s"}
-                  {uncheckedCount > 0 ? ` / ${uncheckedCount} open dataset check${uncheckedCount === 1 ? "" : "s"}` : ""}
+                <button className="text-xs font-medium text-slate transition hover:text-ink" onClick={onBack} type="button">
+                  {project.name}
+                </button>
+                <div className="mt-2 flex flex-wrap items-center gap-3">
+                  <h1 className="max-w-5xl break-words text-xl font-semibold leading-tight text-ink sm:text-2xl">
+                    {activityLabel}
+                  </h1>
+                  <button
+                    aria-expanded={settingsOpen}
+                    className="inline-flex items-center gap-1.5 rounded-md px-2 py-1.5 text-xs font-semibold text-slate transition hover:bg-lab hover:text-ink"
+                    onClick={() => setSettingsOpen((current) => !current)}
+                    type="button"
+                  >
+                    <span aria-hidden="true">✎</span>
+                    {settingsOpen ? "Done" : "Edit activity"}
+                  </button>
+                </div>
+
+                {settingsOpen ? (
+                  <div className="mt-4 max-w-4xl rounded-lg border border-mist bg-lab/45 p-4">
+                    <div className="grid gap-3 md:grid-cols-[minmax(0,0.72fr)_minmax(0,1fr)]">
+                      <label className="block">
+                        <span className="text-xs font-semibold uppercase tracking-[0.08em] text-slate">Activity action</span>
+                        <input
+                          aria-label="Activity action"
+                          className="mt-2 h-10 w-full rounded-md border border-mist bg-white px-3 text-sm font-medium text-ink outline-none transition focus:border-accent"
+                          onChange={(event) => onUpdateMoleculeField("activityType", event.target.value)}
+                          placeholder="Production of"
+                          value={activityType}
+                        />
+                      </label>
+                      <label className="block">
+                        <span className="text-xs font-semibold uppercase tracking-[0.08em] text-slate">Main output</span>
+                        <input
+                          aria-describedby="main-output-rename-note"
+                          aria-label="Main output"
+                          className="mt-2 h-10 w-full rounded-md border border-mist bg-white px-3 text-sm font-medium text-ink outline-none transition focus:border-accent"
+                          onChange={(event) => onUpdateMoleculeField("referenceProductName", event.target.value)}
+                          placeholder="Main output name"
+                          value={referenceProductName}
+                        />
+                      </label>
+                    </div>
+                    <div className="mt-3 flex flex-wrap items-center gap-3">
+                      <p className="text-xs leading-5 text-slate" id="main-output-rename-note">
+                        Changing the main output also renames the activity’s primary output.
+                      </p>
+                    </div>
+                  </div>
+                ) : null}
+                <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-slate">
+                  {reviewIssues.length > 0 ? (
+                    <details className="relative">
+                      <summary className="cursor-pointer list-none font-semibold text-[#e8796f] hover:text-alert">
+                        {reviewIssues.length} issue{reviewIssues.length === 1 ? "" : "s"} · View
+                      </summary>
+                      <div className="theme-popover absolute left-0 z-30 mt-2 grid w-[min(34rem,calc(100vw-3rem))] gap-1 rounded-lg border border-mist p-2">
+                        {reviewIssues.map((issue) => (
+                          <button
+                            className="flex items-center gap-3 rounded-md px-3 py-2.5 text-left text-sm text-slate transition hover:bg-white/5 hover:text-ink"
+                            key={`${issue.state}-${issue.label}-${issue.rowId ?? issue.target}`}
+                            onClick={(event) => {
+                              event.currentTarget.closest("details")?.removeAttribute("open");
+                              focusIssue(issue);
+                            }}
+                            type="button"
+                          >
+                            <span className={`h-2 w-2 shrink-0 rounded-full ${issue.state === "alert" ? "bg-alert" : "bg-scale-2"}`} />
+                            <span className="min-w-0 flex-1">
+                              <span className="block font-medium">{issue.label}</span>
+                              {issue.rowName ? <span className="block truncate text-xs text-slate/75">{issue.rowName}</span> : null}
+                            </span>
+                            <span className="text-xs font-semibold text-alert">Fix →</span>
+                          </button>
+                        ))}
+                      </div>
+                    </details>
+                  ) : null}
                 </div>
               </div>
 
-              <div className="flex flex-wrap items-center gap-3">
-                <button
-                  className="rounded-md border border-alert/20 bg-white px-4 py-2.5 text-sm font-medium text-alert transition hover:bg-alert/10"
-                  onClick={onDelete}
-                  type="button"
-                >
-                  Delete activity
-                </button>
-                <button
-                  className="rounded-md bg-accent px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-ink"
-                  onClick={onSaveProjectJson}
-                  type="button"
-                >
-                  Save project JSON
-                </button>
-              </div>
             </div>
 
-            <div className="mt-4 rounded-lg border border-mist bg-lab p-4">
-              <div className="grid gap-4 md:grid-cols-[14rem_minmax(0,1fr)]">
-                <label className="block">
-                  <span className="text-sm font-medium text-ink">Activity type</span>
-                  <input
-                    className="mt-2 w-full rounded-lg border border-mist/80 bg-lab px-4 py-3 text-sm font-semibold text-ink outline-none transition focus:border-accent"
-                    onChange={(event) => onUpdateMoleculeField("activityType", event.target.value)}
-                    placeholder="Production of"
-                    value={activityType}
-                  />
-                </label>
-                <label className="block">
-                  <span className="text-sm font-medium text-ink">Produced item</span>
-                  <input
-                    className="mt-2 w-full rounded-lg border border-mist/80 bg-lab px-4 py-3 text-sm text-ink outline-none transition focus:border-accent"
-                    onChange={(event) => onUpdateMoleculeField("referenceProductName", event.target.value)}
-                    value={referenceProductName}
-                  />
-                </label>
-              </div>
+            <div className="tab-strip flex gap-3 border-b border-mist/70 px-3 sm:px-5">
+              <WorkspaceTab
+                active={activeTab === "inputs"}
+                label={`Inputs · ${inputCount}`}
+                onClick={() => setActiveTab("inputs")}
+              />
+              <WorkspaceTab
+                active={activeTab === "outputs"}
+                label={`Outputs · ${outputCount}`}
+                onClick={() => setActiveTab("outputs")}
+              />
+              <WorkspaceTab
+                active={activeTab === "documentation"}
+                label="Scope & sources"
+                onClick={() => setActiveTab("documentation")}
+              />
             </div>
 
-          </section>
+          </header>
 
-          {activeTab === "inventory" ? (
-            <ReconstructionTable
-              molecule={molecule}
-              onDeleteRow={onDeleteRow}
-              onOpenMolecule={onOpenMolecule}
-              onCreateChildFromRow={onCreateChildFromRow}
-              onApplyPasDefaults={onApplyPasDefaults}
-              onRescale={onRescaleRows}
-              onSaveRow={onSaveRow}
-              onUpdateScaleField={(field, value) => onUpdateMoleculeField(field, value)}
-              autoOpenSection={autoOpenRowEditor}
-              onAutoOpenHandled={onAutoOpenRowEditorHandled}
-              project={project}
-            />
-          ) : (
-            <DocumentationPanel
-              documentation={molecule.documentation}
-              moleculeNotes={molecule.notes}
-              onChange={onUpdateDocumentation}
-              onNotesChange={(value) => onUpdateMoleculeField("notes", value)}
-            />
-          )}
+          <div className="workspace-pane min-w-0" key={activeTab}>
+            {activeTab !== "documentation" ? (
+              <ReconstructionTable
+                activeSection={activeTab === "outputs" ? "OUTPUT" : "INPUT"}
+                autoOpenSection={autoOpenRowEditor}
+                molecule={molecule}
+                onApplyPasDefaults={onApplyPasDefaults}
+                onAutoOpenHandled={onAutoOpenRowEditorHandled}
+                onCreateChildFromRow={onCreateChildFromRow}
+                onImportActivityFromFile={onImportActivityFromFile}
+                onDeleteRow={onDeleteRow}
+                onOpenMolecule={onOpenMolecule}
+                onRescale={onRescaleRows}
+                onSaveRow={onSaveRow}
+                onUpdateScaleField={(field, value) => onUpdateMoleculeField(field, value)}
+                project={project}
+                fixRequest={fixRequest}
+                onFixRequestHandled={() => setFixRequest(null)}
+              />
+            ) : (
+              <DocumentationPanel
+                documentation={molecule.documentation}
+                focusMissingField={documentationFocusRequest}
+                moleculeNotes={molecule.notes}
+                onChange={onUpdateDocumentation}
+                onNotesChange={(value) => onUpdateMoleculeField("notes", value)}
+              />
+            )}
+          </div>
         </div>
       </div>
     </main>

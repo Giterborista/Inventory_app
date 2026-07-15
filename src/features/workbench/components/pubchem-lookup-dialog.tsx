@@ -66,11 +66,16 @@ export function PubChemLookupDialog({
 
   return (
     <div className="fixed inset-0 z-[70] flex items-start justify-center overflow-y-auto bg-ink/40 px-4 py-10 backdrop-blur-sm">
-      <div className="hero-surface w-full max-w-4xl rounded-lg border border-white/70 p-6 shadow-xl">
+      <div
+        aria-labelledby="pubchem-lookup-title"
+        aria-modal="true"
+        className="hero-surface w-full max-w-4xl rounded-xl border border-white/70 p-6 shadow-xl"
+        role="dialog"
+      >
         <div className="flex items-start justify-between gap-4">
           <div>
             <div className="section-title">PubChem lookup</div>
-            <h2 className="mt-2 text-[1.7rem] font-semibold text-ink">{title}</h2>
+            <h2 className="mt-2 text-[1.7rem] font-semibold text-ink" id="pubchem-lookup-title">{title}</h2>
             <p className="mt-2 max-w-3xl text-sm leading-6 text-slate">
               Search PubChem by CAS, name, IUPAC, or synonym, then choose a candidate to autofill the current form.
             </p>
@@ -95,7 +100,7 @@ export function PubChemLookupDialog({
             />
           </label>
           <button
-            className="rounded-md bg-accent px-5 py-3 text-sm font-semibold text-white transition enabled:hover:bg-ink disabled:cursor-not-allowed disabled:bg-mist"
+            className="rounded-md bg-accent px-5 py-3 text-sm font-semibold text-white transition enabled:hover:bg-[#1f4b87] disabled:cursor-not-allowed disabled:bg-mist"
             disabled={!trimmedQuery || loading}
             onClick={() => void runLookup()}
             type="button"
@@ -162,7 +167,7 @@ export function PubChemLookupDialog({
                     Open PubChem
                   </a>
                   <button
-                    className="rounded-md bg-accent px-4 py-2 text-sm font-semibold text-white transition hover:bg-ink"
+                    className="rounded-md bg-accent px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#1f4b87]"
                     onClick={() => onSelect(match)}
                     type="button"
                   >
