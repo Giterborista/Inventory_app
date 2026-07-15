@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { type FormEvent, useEffect, useState } from "react";
 
 import type { EcoinventDatasetMatch } from "@/features/workbench/types";
 
@@ -247,6 +247,10 @@ export function EcoinventLookupDialog({ open, initialQuery, context, onClose, on
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [progressEvents, setProgressEvents] = useState<ProgressEvent[]>([]);
+  const [aiPasswordPromptOpen, setAiPasswordPromptOpen] = useState(false);
+  const [aiPassword, setAiPassword] = useState("");
+  const [aiPasswordError, setAiPasswordError] = useState("");
+  const [aiAuthenticating, setAiAuthenticating] = useState(false);
 
   useEffect(() => {
     if (!open) return;
@@ -270,6 +274,10 @@ export function EcoinventLookupDialog({ open, initialQuery, context, onClose, on
     setLoading(false);
     setError("");
     setProgressEvents([]);
+    setAiPasswordPromptOpen(false);
+    setAiPassword("");
+    setAiPasswordError("");
+    setAiAuthenticating(false);
     const controller = new AbortController();
     setFacetsLoading(true);
     void fetch("/api/ecoinvent/search", {
@@ -414,6 +422,12 @@ export function EcoinventLookupDialog({ open, initialQuery, context, onClose, on
       });
       if (!result.ok) {
         const payload = (await result.json()) as PipelineResponse;
+        if (result.status === 401) {
+          setView("manual");
+          setAiPasswordError("");
+          setAiPasswordPromptOpen(true);
+          return;
+        }
         throw new Error(payload.configured === false
           ? "OpenAI is not configured. Add OPENAI_API_KEY to .env.local and restart the server."
           : payload.error || "The autonomous ecoinvent search failed.");
@@ -459,6 +473,31 @@ export function EcoinventLookupDialog({ open, initialQuery, context, onClose, on
       setError(searchError instanceof Error ? searchError.message : "The autonomous ecoinvent search is temporarily unavailable.");
     } finally {
       setLoading(false);
+    }
+  };
+
+  const submitAiPassword = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setAiAuthenticating(true);
+    setAiPasswordError("");
+    try {
+      const result = await fetch("/api/auth/login", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ password: aiPassword }),
+      });
+      const payload = (await result.json()) as { error?: string };
+      if (!result.ok) {
+        setAiPasswordError(payload.error || "AI access could not be verified.");
+        return;
+      }
+      setAiPassword("");
+      setAiPasswordPromptOpen(false);
+      await askAi();
+    } catch {
+      setAiPasswordError("The server could not be reached. Please try again.");
+    } finally {
+      setAiAuthenticating(false);
     }
   };
 
@@ -681,6 +720,36 @@ export function EcoinventLookupDialog({ open, initialQuery, context, onClose, on
           ) : null}
         </div>
       </div>
+
+      {aiPasswordPromptOpen ? (
+        <div className="fixed inset-0 z-[95] grid place-items-center bg-black/70 px-4 py-8">
+          <section aria-labelledby="ai-access-title" aria-modal="true" className="panel-surface w-full max-w-md rounded-xl border border-mist/80 p-6 sm:p-7" role="dialog">
+            <span className="inline-flex rounded-md bg-accent-soft px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-alert-text">AI access</span>
+            <h3 className="mt-4 text-xl font-semibold text-ink" id="ai-access-title">Unlock AI assistance</h3>
+            <p className="mt-2 text-sm leading-6 text-slate">
+              Manual ecoQuery search remains available without a password. Enter the beta access password only to use the OpenAI-assisted search.
+            </p>
+            <form className="mt-5" onSubmit={submitAiPassword}>
+              <label className="block text-sm font-semibold text-ink" htmlFor="ai-access-password">Access password</label>
+              <input
+                autoComplete="current-password"
+                autoFocus
+                className="mt-2 h-12 w-full rounded-md border border-mist/80 bg-lab px-4 text-base text-ink outline-none transition focus:border-accent"
+                id="ai-access-password"
+                onChange={(event) => setAiPassword(event.target.value)}
+                required
+                type="password"
+                value={aiPassword}
+              />
+              {aiPasswordError ? <p aria-live="polite" className="mt-3 rounded-md border border-accent/30 bg-accent-soft px-3 py-2 text-sm text-alert-text" role="alert">{aiPasswordError}</p> : null}
+              <div className="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+                <button className="h-11 rounded-md border border-mist px-4 text-sm font-semibold text-slate transition hover:border-slate hover:text-ink" onClick={() => { setAiPasswordPromptOpen(false); setAiPassword(""); setAiPasswordError(""); }} type="button">Continue manual search</button>
+                <button className="h-11 rounded-md bg-accent px-5 text-sm font-semibold text-white transition hover:bg-[#ad4141] disabled:cursor-wait disabled:opacity-60" disabled={aiAuthenticating} type="submit">{aiAuthenticating ? "Checking…" : "Unlock AI"}</button>
+              </div>
+            </form>
+          </section>
+        </div>
+      ) : null}
     </div>
   );
 }

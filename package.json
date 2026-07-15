@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "auth:generate": "node scripts/generate-auth-secrets.mjs",
     "dev": "node scripts/dev-open-safari.mjs",
     "dev:server": "next dev",
     "build": "next build",
