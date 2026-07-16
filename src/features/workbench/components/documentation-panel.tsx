@@ -31,6 +31,12 @@ export function DocumentationPanel({
     const target = !documentation.referenceAndScope.trim() ? contextRef.current : traceabilityRef.current;
     target?.scrollIntoView({ behavior: "smooth", block: "center" });
     target?.focus({ preventScroll: true });
+    target?.classList.add("project-issue-highlight");
+    const timer = window.setTimeout(() => target?.classList.remove("project-issue-highlight"), 2400);
+    return () => {
+      window.clearTimeout(timer);
+      target?.classList.remove("project-issue-highlight");
+    };
   }, [documentation.referenceAndScope, focusMissingField]);
 
   return (

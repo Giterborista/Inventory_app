@@ -120,6 +120,11 @@ a {
   box-sizing: border-box;
 }
 
+.project-issue-highlight {
+  outline: 2px solid color-mix(in srgb, var(--accent) 55%, transparent);
+  outline-offset: 3px;
+}
+
 button,
 input,
 select,
