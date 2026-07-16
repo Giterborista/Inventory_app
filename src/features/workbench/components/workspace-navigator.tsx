@@ -90,16 +90,16 @@ function TreeRow({
           {children.length > 0 ? (expanded ? "⌄" : "›") : "·"}
         </button>
         <button
-          className="flex min-w-0 flex-1 items-center gap-2 py-2 pr-2 text-left"
+          className="flex flex-none items-center gap-2 py-2 pr-3 text-left"
           onClick={() => onOpenMolecule(molecule.id)}
           type="button"
         >
           {reviewState === "alert" ? <span aria-label="Needs attention" className="h-2 w-2 shrink-0 rounded-full bg-alert" /> : null}
-          <span className="min-w-0 flex-1">
-            <span className={`block truncate text-sm ${selected ? "font-semibold" : "font-medium"}`}>
+          <span>
+            <span className={`block whitespace-nowrap text-sm ${selected ? "font-semibold" : "font-medium"}`}>
               {molecule.referenceProductName || molecule.name || "Untitled activity"}
             </span>
-            <span className="block truncate text-[11px] text-slate/75">
+            <span className="block whitespace-nowrap text-[11px] text-slate/75">
               {inputCount} input{inputCount === 1 ? "" : "s"}
             </span>
           </span>
@@ -198,7 +198,7 @@ export function WorkspaceNavigator({
         </label>
       </div>
 
-      <div className="max-h-72 min-h-0 flex-1 overflow-y-auto px-2 py-3 lg:max-h-none">
+      <div className="flex max-h-72 min-h-0 flex-1 flex-col px-2 py-3 lg:max-h-none">
         <div className="mb-2 flex items-center justify-between px-2">
           <h2 className="text-xs font-semibold uppercase tracking-[0.1em] text-slate">Project structure</h2>
           <button
@@ -209,20 +209,22 @@ export function WorkspaceNavigator({
             Collapse
           </button>
         </div>
-        <div className="space-y-0.5">
-          {roots.map((root) => (
-            <TreeRow
-              depth={0}
-              expandedIds={expandedIds}
-              key={root.id}
-              molecule={root}
-              onOpenMolecule={onOpenMolecule}
-              project={project}
-              selectedMoleculeId={selectedMoleculeId}
-              setExpandedIds={setExpandedIds}
-              visibleIds={visibleIds}
-            />
-          ))}
+        <div aria-label="Scrollable project structure" className="min-h-0 flex-1 overflow-auto pb-1">
+          <div className="w-max min-w-full space-y-0.5">
+            {roots.map((root) => (
+              <TreeRow
+                depth={0}
+                expandedIds={expandedIds}
+                key={root.id}
+                molecule={root}
+                onOpenMolecule={onOpenMolecule}
+                project={project}
+                selectedMoleculeId={selectedMoleculeId}
+                setExpandedIds={setExpandedIds}
+                visibleIds={visibleIds}
+              />
+            ))}
+          </div>
         </div>
       </div>
     </aside>

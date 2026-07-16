@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { CreateMoleculeDialog } from "@/features/workbench/components/create-molecule-dialog";
 import { Dashboard } from "@/features/workbench/components/dashboard";
+import type { ProjectChecksFilter } from "@/features/workbench/components/project-checks-drawer";
 import { ObjectInventory } from "@/features/workbench/components/object-inventory";
 import { SupportiveInformationDialog } from "@/features/workbench/components/supportive-information-dialog";
 import {
@@ -28,7 +29,8 @@ import {
   downloadBrowserFile,
   loadProjectJsonFile,
 } from "@/features/workbench/exporters";
-import { getHierarchySearchMatches, getMoleculeById, getUnresolvedMolecules } from "@/features/workbench/selectors";
+import { getHierarchySearchMatches, getMoleculeById, getUnresolvedMolecules, validateProject } from "@/features/workbench/selectors";
+import type { ProjectValidationIssue } from "@/features/workbench/selectors";
 import { createEmptyWorkbenchState, makeClientId, nowIso } from "@/features/workbench/state-utils";
 import type { MoleculeDraft, ReconstructionRow, ReconstructionSection, WorkbenchState } from "@/features/workbench/types";
 
@@ -55,6 +57,10 @@ export function WorkbenchApp() {
   const [supportiveInformationDialogOpen, setSupportiveInformationDialogOpen] = useState(false);
   const [browserDraftReady, setBrowserDraftReady] = useState(false);
   const [browserDraftRecovered, setBrowserDraftRecovered] = useState(false);
+  const [projectChecksOpen, setProjectChecksOpen] = useState(false);
+  const [projectChecksFilter, setProjectChecksFilter] = useState<ProjectChecksFilter>("all");
+  const [projectChecksActivityId, setProjectChecksActivityId] = useState("");
+  const [pendingProjectIssue, setPendingProjectIssue] = useState<ProjectValidationIssue | null>(null);
   const browserDraftSaveTimer = useRef<number | null>(null);
 
   useEffect(() => {
@@ -167,6 +173,7 @@ export function WorkbenchApp() {
     : null;
   const filteredMolecules = getHierarchySearchMatches(state.project, searchQuery);
   const unresolvedMolecules = getUnresolvedMolecules(state.project);
+  const projectIssues = useMemo(() => validateProject(state.project), [state.project]);
 
   const openMolecule = (moleculeId: string) => {
     setAutoOpenRowEditorSection(null);
@@ -178,6 +185,14 @@ export function WorkbenchApp() {
   const openMoleculeForFix = (moleculeId: string, section: ReconstructionSection) => {
     setAutoOpenRowEditorSection(section);
     applyStateChange((current) => selectMolecule(ensureLinkedObjectReferenceOutputs(current), moleculeId), {
+      markDirty: false,
+    });
+  };
+
+  const openProjectIssue = (issue: ProjectValidationIssue) => {
+    setPendingProjectIssue(issue);
+    const targetActivityId = issue.target.activityId ?? issue.activityId;
+    applyStateChange((current) => selectMolecule(ensureLinkedObjectReferenceOutputs(current), targetActivityId), {
       markDirty: false,
     });
   };
@@ -313,6 +328,9 @@ export function WorkbenchApp() {
 
     replaceSessionState(createEmptyWorkbenchState(), "clean");
     setSearchQuery("");
+    setProjectChecksOpen(false);
+    setProjectChecksActivityId("");
+    setPendingProjectIssue(null);
   };
 
   const openProjectDossier = async (supportiveFiles: File[] = []) => {
@@ -336,6 +354,8 @@ export function WorkbenchApp() {
       {selectedMolecule ? (
         <ObjectInventory
           molecule={selectedMolecule}
+          projectIssueFocus={pendingProjectIssue}
+          onProjectIssueFocusHandled={() => setPendingProjectIssue(null)}
           autoOpenRowEditor={autoOpenRowEditorSection}
           onAutoOpenRowEditorHandled={() => setAutoOpenRowEditorSection(null)}
           onBack={closeObjectInventory}
@@ -423,6 +443,14 @@ export function WorkbenchApp() {
           searchQuery={searchQuery}
           unresolvedMolecules={unresolvedMolecules}
           browserDraftRecovered={browserDraftRecovered}
+          projectChecksActivityId={projectChecksActivityId}
+          projectChecksFilter={projectChecksFilter}
+          projectChecksOpen={projectChecksOpen}
+          projectIssues={projectIssues}
+          onOpenProjectIssue={openProjectIssue}
+          onProjectChecksActivityChange={setProjectChecksActivityId}
+          onProjectChecksFilterChange={setProjectChecksFilter}
+          onProjectChecksOpenChange={setProjectChecksOpen}
           saveStatusLabel={
             sessionState === "dirty"
               ? "Saved automatically in this browser"

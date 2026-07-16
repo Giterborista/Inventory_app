@@ -29,6 +29,22 @@ export type InventoryReviewIssue = {
   linkedMoleculeId?: string;
 };
 
+export type ProjectIssueSeverity = "error" | "warning";
+export type ProjectIssueTab = "inputs" | "outputs" | "scope";
+
+export type ProjectValidationIssue = {
+  id: string;
+  activityId: string;
+  severity: ProjectIssueSeverity;
+  message: string;
+  target: {
+    tab: ProjectIssueTab;
+    flowId?: string;
+    field?: string;
+    activityId?: string;
+  };
+};
+
 function parseReviewNumber(value: string) {
   const parsed = Number(value.replace(",", ".").trim());
   return Number.isFinite(parsed) ? parsed : null;
@@ -185,6 +201,69 @@ export function getMoleculeInventoryReviewIssues(
           candidate.rowId === issue.rowId &&
           candidate.target === issue.target,
       ) === index,
+  );
+}
+
+function getProjectIssueField(issue: InventoryReviewIssue) {
+  if (issue.target === "row-background") return "ecoinventDatasetId";
+  if (issue.target === "documentation") return "referenceAndScope";
+  if (issue.target === "reference-output") return "referenceOutput";
+  if (issue.target === "add-input") return "inputList";
+  if (issue.label.toLowerCase().includes("unit")) return "unit";
+  if (issue.label.toLowerCase().includes("amount")) return "totalValue";
+  return "details";
+}
+
+function getProjectIssueMessage(issue: InventoryReviewIssue) {
+  const flowType = issue.section === "OUTPUT" ? "Output" : "Input";
+  const flowName = issue.rowName?.trim();
+
+  if (issue.label === "Missing reference amount") return "Reference output has no amount";
+  if (issue.label === "Invalid reference amount") return "Reference output amount must be greater than zero";
+  if (issue.label === "Missing reference unit") return "Reference output has no unit";
+  if (issue.label === "No dataset connection") return `${flowType} “${flowName || "unnamed flow"}” has no dataset`;
+  if (issue.label === "Review the selected dataset") return `${flowType} “${flowName || "unnamed flow"}” dataset needs review`;
+  if (issue.label === "Missing amount") return `${flowType} “${flowName || "unnamed flow"}” has no amount`;
+  if (issue.label === "Missing unit") return `${flowType} “${flowName || "unnamed flow"}” has no unit`;
+  if (issue.label === "Linked activity has no output") return `Linked activity for “${flowName || "unnamed flow"}” has no output`;
+  if (issue.label === "Add the activity's main output") return "Activity has no reference output";
+  if (issue.label === "Add the first input") return "Activity has no inputs";
+  if (issue.label === "Add activity context and traceability") return "Activity context or sources are incomplete";
+  return issue.label;
+}
+
+/**
+ * The single project-level validation result used by project summaries, the
+ * activity tree, and issue navigation. UI components must not recreate checks.
+ */
+export function validateProject(project: ProjectRecord): ProjectValidationIssue[] {
+  return project.molecules.flatMap((molecule) =>
+    getMoleculeInventoryReviewIssues(project, molecule).map((issue) => {
+      const tab: ProjectIssueTab =
+        issue.target === "documentation"
+          ? "scope"
+          : issue.section === "OUTPUT" || issue.target === "reference-output" || issue.target === "linked-activity"
+            ? "outputs"
+            : "inputs";
+      const field = issue.target === "documentation"
+        ? (!molecule.documentation.referenceAndScope.trim() ? "referenceAndScope" : "calculationNotes")
+        : getProjectIssueField(issue);
+      const targetActivityId = issue.target === "linked-activity" ? issue.linkedMoleculeId : undefined;
+      const stableTarget = issue.rowId ?? field;
+
+      return {
+        id: `${molecule.id}:${stableTarget}:${issue.target}:${field}`,
+        activityId: molecule.id,
+        severity: issue.state === "alert" ? "error" : "warning",
+        message: getProjectIssueMessage(issue),
+        target: {
+          tab,
+          flowId: issue.rowId,
+          field,
+          activityId: targetActivityId,
+        },
+      };
+    }),
   );
 }
 

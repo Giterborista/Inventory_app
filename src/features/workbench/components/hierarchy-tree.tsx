@@ -6,11 +6,11 @@ import { StatusBadge } from "@/features/workbench/components/status-badge";
 import {
   getChildMolecules,
   getLinkedMolecule,
-  getMoleculeInventoryReviewState,
   getMoleculeRows,
   getRowInventoryReviewIssues,
   getTopLevelMolecules,
 } from "@/features/workbench/selectors";
+import type { ProjectValidationIssue } from "@/features/workbench/selectors";
 import type { MoleculeRecord, ProjectRecord, ReconstructionRow } from "@/features/workbench/types";
 
 type HierarchyTreeProps = {
@@ -22,6 +22,8 @@ type HierarchyTreeProps = {
   onSelectMolecule: (moleculeId: string) => void;
   onCreateParentMolecule: (childMoleculeId: string) => void;
   onCreateTopLevelMolecule: () => void;
+  projectIssues: ProjectValidationIssue[];
+  onOpenActivityIssues: (activityId: string) => void;
 };
 
 function IngredientNode({
@@ -76,6 +78,8 @@ function TreeNode({
   onSelectMolecule,
   onCreateParentMolecule,
   selectedMoleculeId,
+  projectIssues,
+  onOpenActivityIssues,
   isLast = false,
 }: {
   molecule: MoleculeRecord;
@@ -93,9 +97,11 @@ function TreeNode({
   onSelectMolecule: (moleculeId: string) => void;
   onCreateParentMolecule: (childMoleculeId: string) => void;
   selectedMoleculeId: string;
+  projectIssues: ProjectValidationIssue[];
+  onOpenActivityIssues: (activityId: string) => void;
   isLast?: boolean;
 }) {
-  const reviewState = getMoleculeInventoryReviewState(project, molecule);
+  const activityIssueCount = projectIssues.filter((issue) => issue.activityId === molecule.id).length;
   const referenceProductName = molecule.referenceProductName || molecule.name;
   const activityLabel = `${molecule.activityType || "Production of"} ${
     referenceProductName || "untitled reference product"
@@ -122,7 +128,6 @@ function TreeNode({
   const cycleDetected = path.has(molecule.id);
   const expanded = hasChildren && (expandedIds.has(molecule.id) || depth === 0);
   const selected = selectedMoleculeId === molecule.id;
-  const reviewLabel = reviewState === "alert" ? "Needs attention" : "";
 
   if (visibleIds && !visibleIds.has(molecule.id)) {
     return null;
@@ -182,8 +187,21 @@ function TreeNode({
           </div>
         </div>
 
-        <div className="ml-3 hidden shrink-0 items-center gap-2 lg:flex">
-          {reviewLabel ? <span className="inline-flex items-center gap-1.5 rounded-full bg-alert/10 px-2 py-1 text-[10px] font-semibold text-alert"><span className="h-1.5 w-1.5 rounded-full bg-alert" /> {reviewLabel}</span> : null}
+        <div className="ml-2 flex shrink-0 items-center gap-1 sm:ml-3 sm:gap-2">
+          {activityIssueCount > 0 ? (
+            <button
+              aria-label={`Open ${activityIssueCount} issue${activityIssueCount === 1 ? "" : "s"} for ${activityLabel}`}
+              className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-[11px] font-semibold text-alert transition hover:bg-alert/10"
+              onClick={(event) => {
+                event.stopPropagation();
+                onOpenActivityIssues(molecule.id);
+              }}
+              type="button"
+            >
+              <span className="h-1.5 w-1.5 rounded-full bg-alert" />
+              {activityIssueCount} issue{activityIssueCount === 1 ? "" : "s"}
+            </button>
+          ) : null}
           {molecule.placeholder ? <StatusBadge label="Placeholder" tone="ink" /> : null}
           {cycleDetected ? <StatusBadge label="Cycle" tone="alert" /> : null}
         </div>
@@ -211,9 +229,11 @@ function TreeNode({
                 onOpenMolecule={onOpenMolecule}
                 onSelectMolecule={onSelectMolecule}
                 onCreateParentMolecule={onCreateParentMolecule}
+                onOpenActivityIssues={onOpenActivityIssues}
                 openMenuId={openMenuId}
                 path={new Set([...path, molecule.id])}
                 project={project}
+                projectIssues={projectIssues}
                 setExpandedIds={setExpandedIds}
                 setOpenMenuId={setOpenMenuId}
                 showAllIngredients={showAllIngredients}
@@ -240,6 +260,8 @@ export function HierarchyTree({
   onSelectMolecule,
   onCreateParentMolecule,
   onCreateTopLevelMolecule,
+  projectIssues,
+  onOpenActivityIssues,
 }: HierarchyTreeProps) {
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const [openMenuId, setOpenMenuId] = useState("");
@@ -282,9 +304,11 @@ export function HierarchyTree({
               onOpenMolecule={onOpenMolecule}
               onSelectMolecule={onSelectMolecule}
               onCreateParentMolecule={onCreateParentMolecule}
+              onOpenActivityIssues={onOpenActivityIssues}
               openMenuId={openMenuId}
               path={new Set()}
               project={project}
+              projectIssues={projectIssues}
               selectedMoleculeId={selectedMoleculeId}
               setExpandedIds={setExpandedIds}
               setOpenMenuId={setOpenMenuId}

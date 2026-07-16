@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { DocumentationPanel } from "@/features/workbench/components/documentation-panel";
 import { ReconstructionTable } from "@/features/workbench/components/reconstruction-table";
@@ -9,6 +9,7 @@ import { WorkspaceNavigator } from "@/features/workbench/components/workspace-na
 import type { PasProfile } from "@/features/workbench/pas-defaults";
 import { getMoleculeInventoryReviewIssues } from "@/features/workbench/selectors";
 import type { InventoryReviewIssue } from "@/features/workbench/selectors";
+import type { ProjectValidationIssue } from "@/features/workbench/selectors";
 import type {
   DocumentationRecord,
   MoleculeDraft,
@@ -63,6 +64,8 @@ type ObjectInventoryProps = {
   onRescaleRows: () => void;
   autoOpenRowEditor?: ReconstructionSection | null;
   onAutoOpenRowEditorHandled?: () => void;
+  projectIssueFocus?: ProjectValidationIssue | null;
+  onProjectIssueFocusHandled?: () => void;
 };
 
 type ActivityWorkspaceTab = "inputs" | "outputs" | "documentation";
@@ -107,6 +110,8 @@ export function ObjectInventory({
   onRescaleRows,
   autoOpenRowEditor,
   onAutoOpenRowEditorHandled,
+  projectIssueFocus,
+  onProjectIssueFocusHandled,
 }: ObjectInventoryProps) {
   const [activeTab, setActiveTab] = useState<ActivityWorkspaceTab>("inputs");
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -140,6 +145,29 @@ export function ObjectInventory({
       panel: issue.target === "row-background" ? "dataset" : "details",
     });
   }
+
+  useEffect(() => {
+    if (!projectIssueFocus) return;
+
+    if (projectIssueFocus.target.tab === "scope") {
+      setActiveTab("documentation");
+      setDocumentationFocusRequest((current) => current + 1);
+      onProjectIssueFocusHandled?.();
+      return;
+    }
+
+    const section = projectIssueFocus.target.tab === "outputs" ? "OUTPUT" : "INPUT";
+    setActiveTab(projectIssueFocus.target.tab);
+    setFixRequest({
+      key: Date.now(),
+      kind: projectIssueFocus.target.flowId ? "row" : "add",
+      section,
+      rowId: projectIssueFocus.target.flowId,
+      panel: projectIssueFocus.target.field === "ecoinventDatasetId" ? "dataset" : "details",
+      field: projectIssueFocus.target.field,
+    });
+    onProjectIssueFocusHandled?.();
+  }, [onProjectIssueFocusHandled, projectIssueFocus]);
 
   return (
     <main className="min-h-screen bg-transparent px-3 py-3 text-ink sm:px-4 sm:py-4">

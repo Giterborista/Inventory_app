@@ -4,8 +4,10 @@ import { type ReactNode, useEffect, useRef, useState } from "react";
 
 import { HierarchyTree } from "@/features/workbench/components/hierarchy-tree";
 import { InterconnectionGraph } from "@/features/workbench/components/interconnection-graph";
+import { ProjectChecksDrawer, type ProjectChecksFilter } from "@/features/workbench/components/project-checks-drawer";
 import { ThemeToggle } from "@/features/workbench/components/theme-toggle";
 import { getHierarchyVisibleIds } from "@/features/workbench/selectors";
+import type { ProjectValidationIssue } from "@/features/workbench/selectors";
 import type { MoleculeRecord, ProjectRecord } from "@/features/workbench/types";
 
 type DashboardProps = {
@@ -16,6 +18,10 @@ type DashboardProps = {
   isExportingProjectPdf?: boolean;
   browserDraftRecovered?: boolean;
   saveStatusLabel: string;
+  projectIssues: ProjectValidationIssue[];
+  projectChecksOpen: boolean;
+  projectChecksFilter: ProjectChecksFilter;
+  projectChecksActivityId: string;
   onSearchQueryChange: (value: string) => void;
   onUpdateProjectName: (value: string) => void;
   onOpenMolecule: (moleculeId: string) => void;
@@ -25,6 +31,10 @@ type DashboardProps = {
   onOpenProjectReport: () => void;
   onSaveProjectJson: () => void;
   onNewProject: () => void;
+  onProjectChecksOpenChange: (open: boolean) => void;
+  onProjectChecksFilterChange: (filter: ProjectChecksFilter) => void;
+  onProjectChecksActivityChange: (activityId: string) => void;
+  onOpenProjectIssue: (issue: ProjectValidationIssue) => void;
 };
 
 type IconName =
@@ -206,6 +216,10 @@ export function Dashboard({
   isExportingProjectPdf = false,
   browserDraftRecovered = false,
   saveStatusLabel,
+  projectIssues,
+  projectChecksOpen,
+  projectChecksFilter,
+  projectChecksActivityId,
   onSearchQueryChange,
   onUpdateProjectName,
   onOpenMolecule,
@@ -215,6 +229,10 @@ export function Dashboard({
   onOpenProjectReport,
   onSaveProjectJson,
   onNewProject,
+  onProjectChecksOpenChange,
+  onProjectChecksFilterChange,
+  onProjectChecksActivityChange,
+  onOpenProjectIssue,
 }: DashboardProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [activeView, setActiveView] = useState<"hierarchy" | "graph">("hierarchy");
@@ -222,6 +240,7 @@ export function Dashboard({
   const [showAllIngredients, setShowAllIngredients] = useState(false);
   const visibleIds = getHierarchyVisibleIds(project, filteredMolecules);
   const hasActivities = project.molecules.length > 0;
+  const affectedActivityCount = new Set(projectIssues.map((issue) => issue.activityId)).size;
   useEffect(() => {
     if (selectedStructureMoleculeId && !project.molecules.some((molecule) => molecule.id === selectedStructureMoleculeId)) {
       setSelectedStructureMoleculeId("");
@@ -280,8 +299,9 @@ export function Dashboard({
 
         <div className="min-w-0">
           <header className="border-b border-mist/60 px-1 pb-3 pt-1 sm:px-2">
-            <div className="flex flex-wrap items-start justify-between gap-5">
-              <label className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-center justify-between gap-4">
+              <div className="min-w-0 flex-1">
+              <label className="block min-w-0">
                 <input
                   aria-label="Project name"
                   className="w-full max-w-4xl rounded-sm border border-transparent bg-transparent px-1 py-1 text-lg font-semibold leading-tight text-ink outline-none transition hover:border-mist/60 focus:border-slate sm:text-xl"
@@ -289,10 +309,29 @@ export function Dashboard({
                   value={project.name}
                 />
               </label>
-            </div>
-            <div className="mt-1 flex flex-wrap items-center gap-x-5 gap-y-2 px-1 text-xs text-slate">
-              <span><strong className="font-semibold text-ink">{project.molecules.length}</strong> activities</span>
-              {browserDraftRecovered ? <span className="text-sea">Previous work recovered</span> : null}
+              <div className="mt-1 flex flex-wrap items-center gap-x-5 gap-y-2 px-1 text-xs text-slate">
+                <span><strong className="font-semibold text-ink">{project.molecules.length}</strong> activities</span>
+                {browserDraftRecovered ? <span className="text-sea">Previous work recovered</span> : null}
+              </div>
+              </div>
+              {hasActivities ? (
+                <button
+                  aria-label={projectIssues.length > 0 ? `Open project checks: ${projectIssues.length} issue${projectIssues.length === 1 ? "" : "s"} across ${affectedActivityCount} activit${affectedActivityCount === 1 ? "y" : "ies"}` : "Open project checks: no issues found"}
+                  className={`inline-flex h-9 shrink-0 items-center gap-2 rounded-md border px-3 text-xs font-semibold transition ${projectIssues.length > 0 ? "border-alert/35 text-alert hover:bg-alert/10" : "border-mist/70 text-sea hover:bg-lab"}`}
+                  onClick={() => {
+                    onProjectChecksActivityChange("");
+                    onProjectChecksOpenChange(true);
+                  }}
+                  type="button"
+                >
+                  <Icon name={projectIssues.length > 0 ? "alert" : "check"} />
+                  <span aria-live="polite">
+                    {projectIssues.length > 0
+                      ? `${projectIssues.length} issue${projectIssues.length === 1 ? "" : "s"} across ${affectedActivityCount} activit${affectedActivityCount === 1 ? "y" : "ies"}`
+                      : "No issues found"}
+                  </span>
+                </button>
+              ) : null}
             </div>
           </header>
 
@@ -324,6 +363,11 @@ export function Dashboard({
                 onCreateTopLevelMolecule={() => onCreateMolecule()}
                 onOpenMolecule={onOpenMolecule}
                 onSelectMolecule={setSelectedStructureMoleculeId}
+                onOpenActivityIssues={(activityId) => {
+                  onProjectChecksActivityChange(activityId);
+                  onProjectChecksOpenChange(true);
+                }}
+                projectIssues={projectIssues}
                 project={project}
                 selectedMoleculeId={selectedStructureMoleculeId}
                 showAllIngredients={showAllIngredients}
@@ -350,6 +394,17 @@ export function Dashboard({
           type="file"
         />
       </div>
+      <ProjectChecksDrawer
+        activityFilterId={projectChecksActivityId}
+        filter={projectChecksFilter}
+        issues={projectIssues}
+        onClearActivityFilter={() => onProjectChecksActivityChange("")}
+        onClose={() => onProjectChecksOpenChange(false)}
+        onFilterChange={onProjectChecksFilterChange}
+        onOpenIssue={onOpenProjectIssue}
+        open={projectChecksOpen}
+        project={project}
+      />
     </main>
   );
 }

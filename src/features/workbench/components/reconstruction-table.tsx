@@ -24,6 +24,7 @@ export type InventoryFixRequest = {
   section: ReconstructionSection;
   rowId?: string;
   panel?: "details" | "dataset" | "notes";
+  field?: string;
 };
 
 type ReconstructionTableProps = {
@@ -54,6 +55,7 @@ type EditorState = {
   section: ReconstructionSection;
   row: ReconstructionRow | null;
   panel: "details" | "dataset" | "notes";
+  field?: string;
 };
 
 type InlineRowDraft = {
@@ -496,6 +498,7 @@ export function ReconstructionTable({
     section: "INPUT",
     row: null,
     panel: "details",
+    field: undefined,
   });
   const [helpOpen, setHelpOpen] = useState(false);
   const [scaleOpen, setScaleOpen] = useState(false);
@@ -518,6 +521,7 @@ export function ReconstructionTable({
     section: ReconstructionSection,
     row?: ReconstructionRow | null,
     panel: "details" | "dataset" | "notes" = "details",
+    field?: string,
   ) {
     setEditorState({
       open: true,
@@ -525,6 +529,7 @@ export function ReconstructionTable({
       section: row?.section ?? section,
       row: row ?? null,
       panel,
+      field,
     });
   }
 
@@ -539,6 +544,7 @@ export function ReconstructionTable({
       section: current.section,
       row: null,
       panel: "details",
+      field: undefined,
     }));
   }
 
@@ -564,7 +570,7 @@ export function ReconstructionTable({
     const row = fixRequest.rowId
       ? molecule.rows.find((candidate) => candidate.id === fixRequest.rowId) ?? null
       : null;
-    openEditor(fixRequest.section, fixRequest.kind === "row" ? row : null, fixRequest.panel ?? "details");
+    openEditor(fixRequest.section, fixRequest.kind === "row" ? row : null, fixRequest.panel ?? "details", fixRequest.field);
     onFixRequestHandled?.();
   }, [fixRequest, molecule.rows, onFixRequestHandled]);
 
@@ -640,6 +646,7 @@ export function ReconstructionTable({
         currentMolecule={molecule}
         initialRow={editorState.row}
         initialPanel={editorState.panel}
+        initialField={editorState.field}
         onClose={() =>
           setEditorState({
             open: false,
@@ -647,6 +654,7 @@ export function ReconstructionTable({
             section: editorState.section,
             row: null,
             panel: "details",
+            field: undefined,
           })
         }
         onSave={(values, rowId) => {
@@ -657,6 +665,7 @@ export function ReconstructionTable({
             section: editorState.section,
             row: null,
             panel: "details",
+            field: undefined,
           });
         }}
         onCreateChildFromRow={(rowId, values, draft) => {

@@ -29,6 +29,7 @@ type RowEditorDialogProps = {
   section: ReconstructionSection;
   initialRow?: ReconstructionRow | null;
   initialPanel?: "details" | "dataset" | "notes";
+  initialField?: string;
   onClose: () => void;
   onSave: (values: Partial<ReconstructionRow> & { section: ReconstructionSection }, rowId?: string) => void;
   onCreateChildFromRow: (
@@ -210,6 +211,7 @@ export function RowEditorDialog({
   section,
   initialRow,
   initialPanel = "details",
+  initialField,
   onClose,
   onSave,
   onCreateChildFromRow,
@@ -229,6 +231,7 @@ export function RowEditorDialog({
   const [createLinkedActivityOpen, setCreateLinkedActivityOpen] = useState(false);
   const [importingActivity, setImportingActivity] = useState(false);
   const [importActivityError, setImportActivityError] = useState("");
+  const [highlightedField, setHighlightedField] = useState("");
   const importActivityInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -247,7 +250,25 @@ export function RowEditorDialog({
     setCreateLinkedActivityOpen(false);
     setImportingActivity(false);
     setImportActivityError("");
-  }, [initialPanel, initialRow, open, section]);
+    setHighlightedField(initialField ?? "");
+  }, [initialField, initialPanel, initialRow, open, section]);
+
+  useEffect(() => {
+    if (!open || !highlightedField) return;
+    const revealTimer = window.setTimeout(() => {
+      const target = document.querySelector<HTMLElement>(`[data-project-issue-field~="${highlightedField}"]`);
+      target?.scrollIntoView({ behavior: "smooth", block: "center" });
+      const focusTarget = target?.matches("input, textarea, select, button")
+        ? target
+        : target?.querySelector<HTMLElement>("input, textarea, select, button");
+      focusTarget?.focus({ preventScroll: true });
+    }, 0);
+    const clearTimer = window.setTimeout(() => setHighlightedField(""), 2400);
+    return () => {
+      window.clearTimeout(revealTimer);
+      window.clearTimeout(clearTimer);
+    };
+  }, [highlightedField, open]);
 
   const searchResults = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
@@ -591,7 +612,10 @@ export function RowEditorDialog({
 
         <div className="step-panel min-w-0 overflow-y-auto" key={activePanel}><div className="mx-auto max-w-4xl space-y-4 p-4 sm:p-6">
           {activePanel === "details" ? (
-          <section className="p-1">
+          <section
+            className={`rounded-md p-1 ${["details", "inputList", "referenceOutput"].includes(highlightedField) ? "ring-2 ring-accent/50 ring-offset-4 ring-offset-white" : ""}`}
+            data-project-issue-field="details inputList referenceOutput"
+          >
             <div className="flex flex-wrap items-start justify-between gap-4">
               <div>
                 <h3 className="text-lg font-semibold text-ink">What is it, and how much is {draft.section === "INPUT" ? "used" : "produced"}?</h3>
@@ -679,7 +703,7 @@ export function RowEditorDialog({
             ) : null}
 
             <div className="mt-4 grid gap-4 md:grid-cols-2">
-              <label className="block">
+              <label className={`block rounded-md ${highlightedField === "totalValue" ? "ring-2 ring-accent/50 ring-offset-4 ring-offset-white" : ""}`} data-project-issue-field="totalValue">
                 <span className="text-sm font-medium text-ink">Amount</span>
                 <input
                   aria-invalid={amountInvalid || referenceAmountInvalid}
@@ -694,7 +718,7 @@ export function RowEditorDialog({
                 {referenceAmountInvalid && !amountInvalid ? <div className="mt-2 text-xs font-semibold text-alert">The reference amount must be greater than zero.</div> : null}
               </label>
 
-              <label className="block">
+              <label className={`block rounded-md ${highlightedField === "unit" ? "ring-2 ring-accent/50 ring-offset-4 ring-offset-white" : ""}`} data-project-issue-field="unit">
                 <div className="flex items-center justify-between gap-3">
                   <span className="text-sm font-medium text-ink">Unit *</span>
                   {kgConversionPreview ? (
@@ -1039,7 +1063,7 @@ export function RowEditorDialog({
           ) : null}
 
           {activePanel === "dataset" ? (
-          <section className="p-1 transition">
+          <section className={`rounded-md p-1 ${highlightedField === "ecoinventDatasetId" ? "ring-2 ring-accent/50 ring-offset-4 ring-offset-white" : ""}`} data-project-issue-field="ecoinventDatasetId">
 	            <div>
 	              <h3 className="text-lg font-semibold text-ink">How is this {draft.section === "INPUT" ? "input" : "output"} represented?</h3>
 	              <p className="mt-2 max-w-3xl text-sm leading-6 text-slate">Choose one data source. You can change this choice later.</p>
