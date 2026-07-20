@@ -324,6 +324,7 @@ export function createMoleculeFromDraft(
   const timestamp = nowIso();
   const documentation = createEmptyDocumentation();
   const referenceProductName = safeText(draft.referenceProductName || draft.name, "Untitled activity").trim();
+  const activityName = safeText(draft.name, `Production of ${referenceProductName}`).trim();
   const referenceAmount = safeText(draft.referenceAmount, "1").trim() || "1";
   const referenceUnit = safeText(draft.referenceUnit, "kg").trim() || "kg";
 
@@ -332,7 +333,7 @@ export function createMoleculeFromDraft(
     activityType: draft.activityType ?? "production",
     referenceProductName,
     objectKind: draft.objectKind ?? "molecule",
-    name: referenceProductName,
+    name: activityName,
     cas: normalizeCas(draft.cas),
     iupac: draft.iupac.trim(),
     smiles: safeText(draft.smiles).trim(),

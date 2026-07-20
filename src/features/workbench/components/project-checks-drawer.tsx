@@ -23,10 +23,11 @@ type ProjectChecksDrawerProps = {
 function activityLabel(project: ProjectRecord, activityId: string) {
   const activity = project.molecules.find((candidate) => candidate.id === activityId);
   if (!activity) return "Unknown activity";
-  return `${activity.activityType || "Production of"} ${activity.referenceProductName || activity.name}`.trim();
+  return activity.name || "Untitled activity";
 }
 
 function actionLabel(issue: ProjectValidationIssue) {
+  if (issue.target.field === "connection") return "Connect activity";
   if (issue.target.tab === "scope") return "Open scope & sources";
   if (issue.target.flowId) return issue.target.tab === "outputs" ? "Open output" : "Open input";
   return issue.target.tab === "outputs" ? "Open outputs" : "Open inputs";
@@ -72,23 +73,23 @@ export function ProjectChecksDrawer({
 
   return createPortal(
     <div className="fixed inset-0 z-[80]" role="presentation">
-      <button aria-label="Close project checks" className="absolute inset-0 cursor-default bg-ink/20" onClick={onClose} type="button" />
+      <button aria-label="Close error center" className="absolute inset-0 cursor-default bg-ink/20" onClick={onClose} type="button" />
       <aside
-        aria-labelledby="project-checks-title"
+        aria-labelledby="error-center-title"
         aria-modal="true"
         className="absolute inset-y-0 right-0 flex w-[min(31rem,100vw)] flex-col border-l border-mist bg-white"
         role="dialog"
       >
         <header className="flex items-start justify-between gap-4 border-b border-mist/70 px-5 py-5">
           <div>
-            <h2 className="text-lg font-semibold text-ink" id="project-checks-title">Project checks</h2>
+            <h2 className="text-lg font-semibold text-ink" id="error-center-title">Error center</h2>
             <p className="mt-1 text-sm text-slate" aria-live="polite">
               {issues.length > 0
                 ? `${issues.length} issue${issues.length === 1 ? "" : "s"} across ${affectedActivityCount} activit${affectedActivityCount === 1 ? "y" : "ies"}`
                 : "All current activity checks have passed."}
             </p>
           </div>
-          <button ref={closeButtonRef} aria-label="Close project checks" className="grid h-9 w-9 place-items-center rounded-md border border-mist/70 text-lg text-slate hover:bg-lab hover:text-ink" onClick={onClose} type="button">×</button>
+          <button ref={closeButtonRef} aria-label="Close error center" className="grid h-9 w-9 place-items-center rounded-md border border-mist/70 text-lg text-slate hover:bg-lab hover:text-ink" onClick={onClose} type="button">×</button>
         </header>
 
         {issues.length === 0 ? (

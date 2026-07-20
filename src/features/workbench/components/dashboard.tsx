@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 
 import { HierarchyTree } from "@/features/workbench/components/hierarchy-tree";
@@ -7,8 +8,9 @@ import { InterconnectionGraph } from "@/features/workbench/components/interconne
 import { ProjectChecksDrawer, type ProjectChecksFilter } from "@/features/workbench/components/project-checks-drawer";
 import { ThemeToggle } from "@/features/workbench/components/theme-toggle";
 import { getHierarchyVisibleIds } from "@/features/workbench/selectors";
-import type { ProjectValidationIssue } from "@/features/workbench/selectors";
+import type { ProjectSearchResult, ProjectValidationIssue } from "@/features/workbench/selectors";
 import type { MoleculeRecord, ProjectRecord } from "@/features/workbench/types";
+import valueChainImage from "../../../../Pictures/Picture1.png";
 
 type DashboardProps = {
   project: ProjectRecord;
@@ -22,6 +24,7 @@ type DashboardProps = {
   projectChecksOpen: boolean;
   projectChecksFilter: ProjectChecksFilter;
   projectChecksActivityId: string;
+  searchResults: ProjectSearchResult[];
   onSearchQueryChange: (value: string) => void;
   onUpdateProjectName: (value: string) => void;
   onOpenMolecule: (moleculeId: string) => void;
@@ -35,6 +38,8 @@ type DashboardProps = {
   onProjectChecksFilterChange: (filter: ProjectChecksFilter) => void;
   onProjectChecksActivityChange: (activityId: string) => void;
   onOpenProjectIssue: (issue: ProjectValidationIssue) => void;
+  onOpenSearchResult: (result: ProjectSearchResult) => void;
+  onStartTutorial: () => void;
 };
 
 type IconName =
@@ -184,19 +189,23 @@ function SidebarAction({
   label,
   onClick,
   outlined = false,
+  primary = false,
 }: {
   disabled?: boolean;
   icon: IconName;
   label: string;
   onClick: () => void;
   outlined?: boolean;
+  primary?: boolean;
 }) {
   return (
     <button
       className={`inline-flex h-10 w-full items-center justify-start gap-3 rounded-md px-3 text-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-60 ${
-        outlined
-          ? "border border-mist/60 text-ink hover:bg-white/[0.035]"
-          : "text-slate/75 hover:bg-white/[0.035] hover:text-ink"
+        primary
+          ? "bg-accent text-white hover:bg-[#ad4141]"
+          : outlined
+            ? "border border-mist/60 text-ink hover:bg-white/[0.035]"
+            : "text-slate/75 hover:bg-white/[0.035] hover:text-ink"
       }`}
       disabled={disabled}
       onClick={onClick}
@@ -220,6 +229,7 @@ export function Dashboard({
   projectChecksOpen,
   projectChecksFilter,
   projectChecksActivityId,
+  searchResults,
   onSearchQueryChange,
   onUpdateProjectName,
   onOpenMolecule,
@@ -233,24 +243,48 @@ export function Dashboard({
   onProjectChecksFilterChange,
   onProjectChecksActivityChange,
   onOpenProjectIssue,
+  onOpenSearchResult,
+  onStartTutorial,
 }: DashboardProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [activeView, setActiveView] = useState<"hierarchy" | "graph">("hierarchy");
   const [selectedStructureMoleculeId, setSelectedStructureMoleculeId] = useState("");
   const [showAllIngredients, setShowAllIngredients] = useState(false);
+  const [valueChainHelpOpen, setValueChainHelpOpen] = useState(false);
   const visibleIds = getHierarchyVisibleIds(project, filteredMolecules);
   const hasActivities = project.molecules.length > 0;
   const affectedActivityCount = new Set(projectIssues.map((issue) => issue.activityId)).size;
+  const disconnectedActivityIds = new Set(
+    projectIssues
+      .filter((issue) => issue.target.field === "connection")
+      .map((issue) => issue.activityId),
+  );
   useEffect(() => {
     if (selectedStructureMoleculeId && !project.molecules.some((molecule) => molecule.id === selectedStructureMoleculeId)) {
       setSelectedStructureMoleculeId("");
     }
   }, [project.molecules, selectedStructureMoleculeId]);
+  useEffect(() => {
+    if (!valueChainHelpOpen) return;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setValueChainHelpOpen(false);
+    };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [valueChainHelpOpen]);
+  useEffect(() => {
+    const handleTutorialStep = (event: Event) => {
+      const tutorialStep = (event as CustomEvent<{ step?: number }>).detail?.step;
+      if (tutorialStep === 5) setActiveView("hierarchy");
+    };
+    window.addEventListener("lci:tutorial-step", handleTutorialStep);
+    return () => window.removeEventListener("lci:tutorial-step", handleTutorialStep);
+  }, []);
   return (
     <main className="min-h-screen bg-transparent px-3 py-3 text-ink sm:px-4 sm:py-4">
-      <div className="mx-auto grid max-w-[112rem] gap-4 xl:grid-cols-[14.5rem_minmax(0,1fr)]">
-        <aside className="theme-sidebar h-fit overflow-hidden rounded-xl border border-mist/40 xl:sticky xl:top-4 xl:h-[calc(100vh-2rem)] xl:self-start">
-          <div className="border-b border-mist/70 p-4">
+      <div className="mx-auto grid max-w-[112rem] gap-4 md:grid-cols-[17rem_minmax(0,1fr)]">
+        <aside className="theme-sidebar h-fit overflow-hidden rounded-xl border border-mist/40 md:sticky md:top-4 md:h-[calc(100vh-2rem)] md:self-start">
+          <div className="border-b border-mist/70 p-4" data-tutorial="sidebar-brand">
             <div className="flex items-center justify-between gap-3">
               <div className="flex min-w-0 items-center gap-3">
                 <span className="grid h-8 w-8 shrink-0 place-items-center rounded-md bg-accent text-[11px] font-bold tracking-wide text-white">LCI</span>
@@ -261,12 +295,12 @@ export function Dashboard({
               <ThemeToggle />
             </div>
           </div>
-          <div className="p-3">
+          <div className="p-3" data-tutorial="sidebar-actions">
             <div className="space-y-1">
-              <SidebarAction icon="folder" label="Open project file" onClick={() => fileInputRef.current?.click()} outlined />
               {hasActivities ? (
                 <>
-                  <SidebarAction icon="save" label="Download project" onClick={onSaveProjectJson} />
+                  <SidebarAction icon="save" label="Download project" onClick={onSaveProjectJson} primary />
+                  <SidebarAction icon="folder" label="Open project file" onClick={() => fileInputRef.current?.click()} outlined />
                   <SidebarAction
                     disabled={isExportingProjectPdf}
                     icon="file"
@@ -274,26 +308,16 @@ export function Dashboard({
                     onClick={onOpenProjectReport}
                   />
                 </>
-              ) : null}
+              ) : (
+                <SidebarAction icon="folder" label="Open project file" onClick={() => fileInputRef.current?.click()} primary />
+              )}
               <SidebarAction icon="layers" label="New project" onClick={onNewProject} />
             </div>
           </div>
 
-          <div className="mx-3 px-3 py-2 text-[11px] leading-5 text-slate/70">
+          <div className="mx-3 px-3 py-2 text-[11px] leading-5 text-slate/70" data-tutorial="sidebar-save-status">
             {saveStatusLabel}
           </div>
-
-          {hasActivities ? <label className="relative mx-3 mt-4 block">
-            <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate/60">
-              <Icon name="search" />
-            </span>
-            <input
-              className="h-10 w-full rounded-md border border-mist/60 bg-transparent px-10 text-sm text-ink outline-none transition focus:border-slate focus:bg-white/5"
-              onChange={(event) => onSearchQueryChange(event.target.value)}
-              placeholder="Search activities"
-              value={searchQuery}
-            />
-          </label> : null}
 
         </aside>
 
@@ -316,7 +340,7 @@ export function Dashboard({
               </div>
               {hasActivities ? (
                 <button
-                  aria-label={projectIssues.length > 0 ? `Open project checks: ${projectIssues.length} issue${projectIssues.length === 1 ? "" : "s"} across ${affectedActivityCount} activit${affectedActivityCount === 1 ? "y" : "ies"}` : "Open project checks: no issues found"}
+                  aria-label={projectIssues.length > 0 ? `Open error center: ${projectIssues.length} issue${projectIssues.length === 1 ? "" : "s"} across ${affectedActivityCount} activit${affectedActivityCount === 1 ? "y" : "ies"}` : "Open error center: no issues found"}
                   className={`inline-flex h-9 shrink-0 items-center gap-2 rounded-md border px-3 text-xs font-semibold transition ${projectIssues.length > 0 ? "border-alert/35 text-alert hover:bg-alert/10" : "border-mist/70 text-sea hover:bg-lab"}`}
                   onClick={() => {
                     onProjectChecksActivityChange("");
@@ -327,22 +351,30 @@ export function Dashboard({
                   <Icon name={projectIssues.length > 0 ? "alert" : "check"} />
                   <span aria-live="polite">
                     {projectIssues.length > 0
-                      ? `${projectIssues.length} issue${projectIssues.length === 1 ? "" : "s"} across ${affectedActivityCount} activit${affectedActivityCount === 1 ? "y" : "ies"}`
-                      : "No issues found"}
+                      ? `Error center · ${projectIssues.length}`
+                      : "Error center · Clear"}
                   </span>
                 </button>
               ) : null}
             </div>
           </header>
 
-          <section className="mt-3 min-w-0 overflow-hidden rounded-xl border border-mist/60 bg-white">
+          <section className="mt-3 min-w-0 overflow-hidden rounded-xl border border-mist/60 bg-white" data-tutorial="project-workspace">
             <div className="flex flex-wrap items-center justify-between gap-3 border-b border-mist/60 px-4 py-4 sm:px-5">
               <div>
                 <h2 className="text-lg font-semibold text-ink">Project structure</h2>
-                <p className="mt-0.5 text-sm text-slate">Build and navigate the activity hierarchy.</p>
+                <button
+                  aria-expanded={valueChainHelpOpen}
+                  className="mt-1 inline-flex items-center gap-2 text-left text-sm font-medium text-helper transition hover:text-ink"
+                  onClick={() => setValueChainHelpOpen(true)}
+                  type="button"
+                >
+                  <span className="grid h-5 w-5 shrink-0 place-items-center rounded-full border border-helper/45 text-[11px] font-semibold">?</span>
+                  How to model value chains in LCA?
+                </button>
               </div>
               {hasActivities ? <div className="flex flex-wrap items-center gap-2">
-                <div aria-label="Structure view" className="flex items-center gap-1 rounded-lg border border-mist/60 bg-lab p-1">
+                <div aria-label="Structure view" className="flex items-center gap-1 rounded-lg border border-mist/60 bg-lab p-1" data-tutorial="structure-view-controls">
                   <ViewTab active={activeView === "hierarchy"} icon="tree" label="Tree" onClick={() => setActiveView("hierarchy")} />
                   <ViewTab active={activeView === "graph"} icon="graph" label="Graph" onClick={() => setActiveView("graph")} />
                 </div>
@@ -350,6 +382,10 @@ export function Dashboard({
                   <input checked={showAllIngredients} className="h-4 w-4 rounded border-mist text-accent focus:ring-accent" onChange={(event) => setShowAllIngredients(event.target.checked)} type="checkbox" />
                   Show inputs
                 </label>
+                <button className="inline-flex h-10 items-center gap-2 rounded-md border border-mist/60 px-3 text-xs font-semibold text-ink transition hover:bg-lab" onClick={() => onCreateMolecule()} type="button">
+                  <Icon name="plus" />
+                  Add activity
+                </button>
                 {selectedStructureMoleculeId ? (
                   <button className="inline-flex h-10 items-center rounded-md bg-accent px-4 text-xs font-semibold text-white transition hover:bg-[#ad4141]" onClick={() => onCreateMolecule(selectedStructureMoleculeId)} type="button">
                     + Add child activity
@@ -357,10 +393,89 @@ export function Dashboard({
                 ) : null}
               </div> : null}
             </div>
-            {activeView === "hierarchy" ? (
+            {hasActivities ? (
+              <div className="border-b border-mist/60 px-4 py-4 sm:px-5">
+                <label className="relative block max-w-4xl">
+                  <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate/60">
+                    <Icon name="search" />
+                  </span>
+                  <input
+                    aria-label="Search project structure"
+                    className="h-11 w-full rounded-md border border-mist/70 bg-lab/40 px-10 pr-12 text-sm text-ink outline-none transition focus:border-slate focus:bg-white"
+                    onChange={(event) => onSearchQueryChange(event.target.value)}
+                    placeholder="Search activities, inputs, outputs, synonyms, or ecoinvent datasets"
+                    value={searchQuery}
+                  />
+                  {searchQuery ? (
+                    <button
+                      aria-label="Clear project search"
+                      className="absolute right-1 top-1 grid h-9 w-9 place-items-center rounded-md text-lg text-slate transition hover:bg-white hover:text-ink"
+                      onClick={() => onSearchQueryChange("")}
+                      title="Clear search"
+                      type="button"
+                    >
+                      ×
+                    </button>
+                  ) : null}
+                </label>
+              </div>
+            ) : null}
+            {searchQuery.trim() ? (
+              <div className="min-h-[calc(100vh-12rem)] bg-white">
+                <div className="flex items-center justify-between gap-3 border-b border-mist/60 px-4 py-3 text-xs text-slate sm:px-5">
+                  <span>{searchResults.length} result{searchResults.length === 1 ? "" : "s"}</span>
+                  <span className="hidden sm:inline">Select a result to open it</span>
+                </div>
+                {searchResults.length > 0 ? (
+                  <div aria-label="Project search results" role="listbox">
+                    {searchResults.map((result) => {
+                      const kindLabel = result.kind === "ecoinvent_dataset"
+                        ? "Ecoinvent dataset"
+                        : result.kind.charAt(0).toUpperCase() + result.kind.slice(1);
+                      const kindStyle = result.kind === "activity"
+                        ? "border-ink/20 bg-ink/[0.045] text-ink"
+                        : result.kind === "input"
+                          ? "border-accent/25 bg-accent-soft text-accent"
+                          : result.kind === "output"
+                            ? "border-sea/25 bg-sea/10 text-sea"
+                            : "border-amber-300 bg-amber-50 text-amber-900";
+                      return (
+                        <button
+                          className="flex w-full items-center gap-4 border-b border-mist/60 px-4 py-3 text-left transition hover:bg-lab/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/40 sm:px-5"
+                          key={result.id}
+                          onClick={() => onOpenSearchResult(result)}
+                          role="option"
+                          type="button"
+                        >
+                          <span className={`inline-flex w-32 shrink-0 justify-center rounded-sm border px-2 py-1 text-[11px] font-semibold ${kindStyle}`}>
+                            {kindLabel}
+                          </span>
+                          <span className="min-w-0 flex-1">
+                            <span className="block truncate text-sm font-semibold text-ink">{result.title}</span>
+                            <span className="mt-0.5 block truncate text-xs text-slate">{result.context}</span>
+                          </span>
+                          {result.amount || result.unit ? (
+                            <span className="shrink-0 text-right text-sm font-semibold tabular-nums text-ink">
+                              {[result.amount, result.unit].filter(Boolean).join(" ")}
+                            </span>
+                          ) : null}
+                          <span aria-hidden="true" className="shrink-0 text-slate/60">→</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div className="px-4 py-12 text-center sm:px-5">
+                    <div className="text-sm font-semibold text-ink">No matching project item</div>
+                    <div className="mt-1 text-xs text-slate">Try an activity, flow, synonym, UUID, or ecoinvent dataset name.</div>
+                  </div>
+                )}
+              </div>
+            ) : activeView === "hierarchy" ? (
               <HierarchyTree
                 onCreateParentMolecule={onCreateParentMolecule}
                 onCreateTopLevelMolecule={() => onCreateMolecule()}
+                onStartTutorial={onStartTutorial}
                 onOpenMolecule={onOpenMolecule}
                 onSelectMolecule={setSelectedStructureMoleculeId}
                 onOpenActivityIssues={(activityId) => {
@@ -374,7 +489,7 @@ export function Dashboard({
                 visibleIds={visibleIds}
               />
             ) : (
-              <InterconnectionGraph onOpenMolecule={onOpenMolecule} project={project} showInputs={showAllIngredients} visibleIds={visibleIds} />
+              <InterconnectionGraph disconnectedActivityIds={disconnectedActivityIds} onOpenMolecule={onOpenMolecule} project={project} showInputs={showAllIngredients} visibleIds={visibleIds} />
             )}
           </section>
 
@@ -405,6 +520,46 @@ export function Dashboard({
         open={projectChecksOpen}
         project={project}
       />
+      {valueChainHelpOpen ? (
+        <div className="fixed inset-0 z-[80] flex items-center justify-center bg-ink/70 px-4 py-6 backdrop-blur-md">
+          <section
+            aria-labelledby="value-chain-help-title"
+            aria-modal="true"
+            className="hero-surface max-h-[calc(100dvh-3rem)] w-full max-w-5xl overflow-y-auto rounded-xl border border-white/70 p-5 shadow-2xl sm:p-6"
+            role="dialog"
+          >
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h3 className="text-2xl font-semibold text-ink" id="value-chain-help-title">How to model value chains in LCA?</h3>
+                <p className="mt-3 max-w-4xl text-sm leading-6 text-slate">
+                  In the LCA framework, the life cycle of a value chain is modelled as a set of connected activities, such as producing a material, assembling a device or treating waste. Each activity receives inputs, meaning what it uses, and generates outputs, meaning what it produces or releases. An output from one activity may become an input to another activity in the analysed value chain (i.e., main output), thereby connecting the different parts of the system, as shown in the figure below.
+                </p>
+              </div>
+              <button
+                aria-label="Close value chain help"
+                className="grid h-9 w-9 shrink-0 place-items-center rounded-md border border-mist text-lg text-slate transition hover:border-alert hover:text-alert"
+                onClick={() => setValueChainHelpOpen(false)}
+                type="button"
+              >
+                ×
+              </button>
+            </div>
+            <figure className="mt-5 overflow-hidden rounded-lg border border-mist bg-[#05070a] p-3">
+              <div className="overflow-x-auto">
+                <Image
+                  alt="Three activities connected in sequence. Each receives separate inputs and generates outputs, while its main output becomes an input to the following activity."
+                  className="h-auto w-full min-w-[44rem] sm:min-w-0"
+                  sizes="(max-width: 768px) 44rem, 64rem"
+                  src={valueChainImage}
+                />
+              </div>
+              <figcaption className="border-t border-white/10 px-2 pb-1 pt-3 text-xs leading-5 text-white/75">
+                General representation of connected activities. Each activity receives inputs and generates outputs, and the main output of one activity is the reason why this activity exists.
+              </figcaption>
+            </figure>
+          </section>
+        </div>
+      ) : null}
     </main>
   );
 }

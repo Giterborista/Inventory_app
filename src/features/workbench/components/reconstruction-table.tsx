@@ -3,7 +3,6 @@
 import { Fragment, useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 
-import { ActivityFlowDiagram } from "@/features/workbench/components/activity-flow-diagram";
 import { RowEditorDialog } from "@/features/workbench/components/row-editor-dialog";
 import { resolutionLabels } from "@/features/workbench/display";
 import { getLinkedMolecule, getRowInventoryReviewIssues, isReferenceProductRow } from "@/features/workbench/selectors";
@@ -574,6 +573,17 @@ export function ReconstructionTable({
     onFixRequestHandled?.();
   }, [fixRequest, molecule.rows, onFixRequestHandled]);
 
+  useEffect(() => {
+    const handleTutorialStep = (event: Event) => {
+      const step = (event as CustomEvent<{ step: number }>).detail?.step;
+      if (typeof step !== "number") return;
+      if (step <= 8) closeEditor();
+      if (step === 9) openEditor("INPUT");
+    };
+    window.addEventListener("lci:tutorial-step", handleTutorialStep);
+    return () => window.removeEventListener("lci:tutorial-step", handleTutorialStep);
+  }, []);
+
   return (
     <div>
       <section className="flex flex-col bg-white">
@@ -581,18 +591,11 @@ export function ReconstructionTable({
           <div>
             <h2 className="text-lg font-semibold text-ink">{activeSection === "INPUT" ? "Inputs" : "Outputs"}</h2>
           </div>
-          <div className="flex items-center gap-2">
-          <button
-            aria-label="How inputs and outputs work"
-            className="inline-flex items-center gap-1.5 px-1 py-1 text-xs font-medium text-slate transition hover:text-ink"
-            onClick={() => setHelpOpen(true)}
-            type="button"
-          >
-            <span aria-hidden="true" className="text-[11px]">?</span> How inputs and outputs work
-          </button>
+          <div className="flex flex-col items-end gap-1">
           {activeSection === "INPUT" ? (
           <button
             className="rounded-sm bg-accent px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#ad4141]"
+            data-tutorial="add-input"
             onClick={() => openEditor(activeSection)}
             type="button"
           >
@@ -601,6 +604,15 @@ export function ReconstructionTable({
           ) : (
             <button className="rounded-sm bg-accent px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#ad4141]" onClick={() => openEditor(activeSection)} type="button">+ Add output</button>
           )}
+          <button
+            aria-label="How inputs and outputs work"
+            className="inline-flex items-center gap-1.5 px-1 py-1 text-xs font-medium text-slate transition hover:text-ink"
+            onClick={() => setHelpOpen(true)}
+            type="button"
+          >
+            <span aria-hidden="true" className="grid h-4 w-4 place-items-center rounded-full border border-slate/40 text-[10px]">?</span>
+            How inputs and outputs work
+          </button>
           </div>
         </div>
 
@@ -685,14 +697,14 @@ export function ReconstructionTable({
               <section
                 aria-labelledby="inventory-help-title"
                 aria-modal="true"
-                className="hero-surface max-h-[calc(100dvh-3rem)] w-full max-w-3xl overflow-y-auto rounded-xl border border-white/70 p-5 shadow-2xl sm:p-6"
+                className="hero-surface max-h-[calc(100dvh-3rem)] w-full max-w-2xl overflow-y-auto rounded-xl border border-white/70 p-5 shadow-2xl sm:p-6"
                 role="dialog"
               >
                 <div className="flex items-start justify-between gap-4">
                   <div>
-                    <h3 className="text-2xl font-semibold text-ink" id="inventory-help-title">Define this activity’s inputs and outputs</h3>
-                    <p className="mt-2 max-w-2xl text-sm leading-6 text-helper">
-                      Use this page to record everything the activity uses and everything it creates. The product or service named when the activity was created is already added as its main output. Add further outputs only when they are relevant, such as waste, co-products, or direct emissions.
+                    <h3 className="text-xl font-semibold text-ink" id="inventory-help-title">How inputs and outputs work</h3>
+                    <p className="mt-3 text-sm leading-6 text-slate">
+                      A Bill of Materials (BOM) (i.e., a list of materials needed to create a product/device) is often a useful starting point to identify the inputs of an activity. However, it typically does not include all the information needed to describe the activity and should therefore be supplemented with information on energy, water, equipment, and the outputs generated during the activity. The lists below present some examples of common inputs and outputs.
                     </p>
                   </div>
                   <button
@@ -704,8 +716,28 @@ export function ReconstructionTable({
                     ×
                   </button>
                 </div>
-                <div className="mx-auto mt-4 max-w-[34rem] rounded-lg border border-mist bg-lab/40 p-3">
-                  <ActivityFlowDiagram />
+                <div className="mt-5 grid gap-5 sm:grid-cols-2">
+                  <section className="border-l-2 border-sea/55 pl-4">
+                    <h4 className="text-sm font-semibold text-ink">Inputs</h4>
+                    <p className="mt-1 text-xs text-slate">Typical inputs may include:</p>
+                    <ul className="mt-2 list-disc space-y-1.5 pl-4 text-sm leading-5 text-slate">
+                      <li>materials and components, potentially obtained from the BOM (also purchased devices);</li>
+                      <li>use of equipment or infrastructure;</li>
+                      <li>water supplied from the network;</li>
+                      <li>electricity, heating energy and fuels;</li>
+                      <li>resources taken directly from the environment (e.g. air from the room), if any.</li>
+                    </ul>
+                  </section>
+                  <section className="border-l-2 border-accent pl-4">
+                    <h4 className="text-sm font-semibold text-ink">Outputs</h4>
+                    <p className="mt-1 text-xs text-slate">Typical outputs may include:</p>
+                    <ul className="mt-2 list-disc space-y-1.5 pl-4 text-sm leading-5 text-slate">
+                      <li>main output (product, service or system);</li>
+                      <li>co-products (i.e., products that cannot be dissociated from the main output), if any;</li>
+                      <li>direct emissions to air, water or soil, if any;</li>
+                      <li>generated waste, if any.</li>
+                    </ul>
+                  </section>
                 </div>
               </section>
             </div>,

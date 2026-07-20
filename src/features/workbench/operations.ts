@@ -260,7 +260,7 @@ function createLinkedInputRow(
 
   return createBlankRow("INPUT", nextOrder, {
     objectKind: childMolecule.objectKind,
-    name: childMolecule.name,
+    name: childMolecule.referenceProductName || childMolecule.name,
     synonyms: childMolecule.synonyms,
     totalValue: rowValues.totalValue,
     unit: rowValues.unit || "kg",
@@ -286,7 +286,7 @@ function createReferenceOutputRowFromDraft(draft: MoleculeDraft, unit = "kg") {
 
   return createBlankRow("OUTPUT", 1, {
     objectKind: "generic_object",
-    name: draft.referenceProductName || draft.name || "Reference output",
+    name: draft.referenceProductName || draft.name || "Main output",
     synonyms: [],
     unit: referenceUnit,
     totalValue: referenceAmount,
@@ -305,7 +305,7 @@ function createReferenceOutputRowFromDraft(draft: MoleculeDraft, unit = "kg") {
 function createReferenceOutputRowFromInputRow(row: ReconstructionRow) {
   return createBlankRow("OUTPUT", 1, {
     objectKind: row.objectKind,
-    name: row.name || "Reference output",
+    name: row.name || "Main output",
     synonyms: row.synonyms,
     unit: row.unit || "kg",
     totalValue: "",
@@ -314,7 +314,7 @@ function createReferenceOutputRowFromInputRow(row: ReconstructionRow) {
     cas: row.objectKind === "generic_object" ? "" : row.cas,
     iupac: row.objectKind === "generic_object" ? "" : row.iupac,
     smiles: row.objectKind === "generic_object" ? "" : row.smiles,
-    notes: "Reference output placeholder. Add the output amount before impact calculation.",
+    notes: "Main output placeholder. Add the output amount before impact calculation.",
     ecoinventStatus: row.ecoinventStatus,
     rawEcoinventStatus: row.rawEcoinventStatus,
     ecoinventName: row.ecoinventName,
@@ -1120,7 +1120,6 @@ export function updateMoleculeField(
 
     return {
       ...molecule,
-      name: nextName || molecule.name,
       referenceProductName: nextName,
       rows: molecule.rows.map((row) => {
         if (referenceOutputUpdated || row.section !== "OUTPUT") {

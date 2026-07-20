@@ -32,6 +32,7 @@ type ObjectInventoryProps = {
     field:
       | "activityType"
       | "referenceProductName"
+      | "name"
       | "objectKind"
       | "name"
       | "cas"
@@ -66,6 +67,8 @@ type ObjectInventoryProps = {
   onAutoOpenRowEditorHandled?: () => void;
   projectIssueFocus?: ProjectValidationIssue | null;
   onProjectIssueFocusHandled?: () => void;
+  searchFocusRequest?: InventoryFixRequest | null;
+  onSearchFocusRequestHandled?: () => void;
 };
 
 type ActivityWorkspaceTab = "inputs" | "outputs" | "documentation";
@@ -112,14 +115,15 @@ export function ObjectInventory({
   onAutoOpenRowEditorHandled,
   projectIssueFocus,
   onProjectIssueFocusHandled,
+  searchFocusRequest,
+  onSearchFocusRequestHandled,
 }: ObjectInventoryProps) {
   const [activeTab, setActiveTab] = useState<ActivityWorkspaceTab>("inputs");
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [fixRequest, setFixRequest] = useState<InventoryFixRequest | null>(null);
   const [documentationFocusRequest, setDocumentationFocusRequest] = useState(0);
   const referenceProductName = molecule.referenceProductName || molecule.name;
-  const activityType = molecule.activityType || "Production of";
-  const activityLabel = `${activityType} ${referenceProductName || "untitled product or service"}`.trim();
+  const activityLabel = molecule.name || "Untitled activity";
   const inputCount = molecule.rows.filter((row) => row.section === "INPUT").length;
   const outputCount = molecule.rows.filter((row) => row.section === "OUTPUT").length;
   const reviewIssues = getMoleculeInventoryReviewIssues(project, molecule);
@@ -169,10 +173,17 @@ export function ObjectInventory({
     onProjectIssueFocusHandled?.();
   }, [onProjectIssueFocusHandled, projectIssueFocus]);
 
+  useEffect(() => {
+    if (!searchFocusRequest) return;
+    setActiveTab(searchFocusRequest.section === "OUTPUT" ? "outputs" : "inputs");
+    setFixRequest(searchFocusRequest);
+    onSearchFocusRequestHandled?.();
+  }, [onSearchFocusRequestHandled, searchFocusRequest]);
+
   return (
     <main className="min-h-screen bg-transparent px-3 py-3 text-ink sm:px-4 sm:py-4">
-      <div className="mx-auto grid max-w-[112rem] gap-3 lg:grid-cols-[17rem_minmax(0,1fr)]">
-        <div className="lg:sticky lg:top-4 lg:h-[calc(100vh-2rem)] lg:self-start">
+      <div className="mx-auto grid max-w-[112rem] gap-3 md:grid-cols-[17rem_minmax(0,1fr)]">
+        <div className="md:sticky md:top-4 md:h-[calc(100vh-2rem)] md:self-start" data-tutorial="activity-sidebar">
           <WorkspaceNavigator
             onBack={onBack}
             onOpenMolecule={onOpenMolecule}
@@ -181,7 +192,7 @@ export function ObjectInventory({
           />
         </div>
 
-        <div className="workspace-shell min-w-0 self-start overflow-hidden rounded-xl border border-mist/60 bg-white">
+        <div className="workspace-shell min-w-0 self-start overflow-hidden rounded-xl border border-mist/60 bg-white" data-tutorial="activity-workspace">
           <header className="bg-white">
             <div className="relative px-5 py-4 pr-16 sm:px-6 sm:pr-16">
               <button
@@ -196,10 +207,7 @@ export function ObjectInventory({
                 </svg>
               </button>
               <div className="min-w-0 flex-1">
-                <button className="text-xs font-medium text-slate transition hover:text-ink" onClick={onBack} type="button">
-                  {project.name}
-                </button>
-                <div className="mt-2 flex flex-wrap items-center gap-3">
+                <div className="flex flex-wrap items-center gap-3">
                   <h1 className="max-w-5xl break-words text-xl font-semibold leading-tight text-ink sm:text-2xl">
                     {activityLabel}
                   </h1>
@@ -218,13 +226,13 @@ export function ObjectInventory({
                   <div className="mt-4 max-w-4xl rounded-lg border border-mist bg-lab/45 p-4">
                     <div className="grid gap-3 md:grid-cols-[minmax(0,0.72fr)_minmax(0,1fr)]">
                       <label className="block">
-                        <span className="text-xs font-semibold uppercase tracking-[0.08em] text-slate">Activity action</span>
+                        <span className="text-xs font-semibold uppercase tracking-[0.08em] text-slate">Activity name</span>
                         <input
-                          aria-label="Activity action"
+                          aria-label="Activity name"
                           className="mt-2 h-10 w-full rounded-md border border-mist bg-white px-3 text-sm font-medium text-ink outline-none transition focus:border-accent"
-                          onChange={(event) => onUpdateMoleculeField("activityType", event.target.value)}
-                          placeholder="Production of"
-                          value={activityType}
+                          onChange={(event) => onUpdateMoleculeField("name", event.target.value)}
+                          placeholder="Production of research concrete"
+                          value={molecule.name}
                         />
                       </label>
                       <label className="block">

@@ -1,10 +1,12 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { CreateMoleculeDialog } from "@/features/workbench/components/create-molecule-dialog";
 import { Dashboard } from "@/features/workbench/components/dashboard";
+import { GuidedTutorial } from "@/features/workbench/components/guided-tutorial";
 import type { ProjectChecksFilter } from "@/features/workbench/components/project-checks-drawer";
+import type { InventoryFixRequest } from "@/features/workbench/components/reconstruction-table";
 import { ObjectInventory } from "@/features/workbench/components/object-inventory";
 import { SupportiveInformationDialog } from "@/features/workbench/components/supportive-information-dialog";
 import {
@@ -29,8 +31,8 @@ import {
   downloadBrowserFile,
   loadProjectJsonFile,
 } from "@/features/workbench/exporters";
-import { getHierarchySearchMatches, getMoleculeById, getUnresolvedMolecules, validateProject } from "@/features/workbench/selectors";
-import type { ProjectValidationIssue } from "@/features/workbench/selectors";
+import { getHierarchySearchMatches, getMoleculeById, getProjectSearchResults, getUnresolvedMolecules, validateProject } from "@/features/workbench/selectors";
+import type { ProjectSearchResult, ProjectValidationIssue } from "@/features/workbench/selectors";
 import { createEmptyWorkbenchState, makeClientId, nowIso } from "@/features/workbench/state-utils";
 import type { MoleculeDraft, ReconstructionRow, ReconstructionSection, WorkbenchState } from "@/features/workbench/types";
 
@@ -61,6 +63,8 @@ export function WorkbenchApp() {
   const [projectChecksFilter, setProjectChecksFilter] = useState<ProjectChecksFilter>("all");
   const [projectChecksActivityId, setProjectChecksActivityId] = useState("");
   const [pendingProjectIssue, setPendingProjectIssue] = useState<ProjectValidationIssue | null>(null);
+  const [pendingSearchFocus, setPendingSearchFocus] = useState<{ activityId: string; request: InventoryFixRequest } | null>(null);
+  const [tutorialStep, setTutorialStep] = useState<number | null>(null);
   const browserDraftSaveTimer = useRef<number | null>(null);
 
   useEffect(() => {
@@ -172,12 +176,62 @@ export function WorkbenchApp() {
     ? state.project.molecules.find((molecule) => molecule.id === pendingParentChildId) ?? null
     : null;
   const filteredMolecules = getHierarchySearchMatches(state.project, searchQuery);
+  const searchResults = useMemo(() => getProjectSearchResults(state.project, searchQuery), [searchQuery, state.project]);
   const unresolvedMolecules = getUnresolvedMolecules(state.project);
   const projectIssues = useMemo(() => validateProject(state.project), [state.project]);
+
+  const navigateTutorial = useCallback((nextStep: number) => {
+    setTutorialStep(nextStep);
+    setState((current) => {
+      const mainActivity = current.project.molecules.find((molecule) => molecule.topLevel) ?? current.project.molecules[0];
+      if (nextStep <= 5) return selectMolecule(current, null);
+      if (mainActivity) return selectMolecule(current, mainActivity.id);
+      return current;
+    });
+    window.setTimeout(() => window.dispatchEvent(new CustomEvent("lci:tutorial-step", { detail: { step: nextStep } })), 0);
+  }, []);
+
+  const startTutorial = async () => {
+    if (!confirmDiscardUnsavedChanges()) return;
+    try {
+      const response = await fetch("/tutorials/gps-tracker-embedded-in-a-3dprinted-box.json");
+      if (!response.ok) throw new Error("The example project could not be loaded.");
+      const file = new File([await response.blob()], "gps-tracker-embedded-in-a-3dprinted-box.json", { type: "application/json" });
+      const tutorialState = ensureLinkedObjectReferenceOutputs(await loadProjectJsonFile(file));
+      replaceSessionState(selectMolecule(tutorialState, null), "opened");
+      setSearchQuery("");
+      setTutorialStep(0);
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : "The example project could not be loaded.");
+    }
+  };
 
   const openMolecule = (moleculeId: string) => {
     setAutoOpenRowEditorSection(null);
     applyStateChange((current) => selectMolecule(ensureLinkedObjectReferenceOutputs(current), moleculeId), {
+      markDirty: false,
+    });
+    if (tutorialStep === 5) navigateTutorial(6);
+  };
+
+  const openProjectSearchResult = (result: ProjectSearchResult) => {
+    if (result.kind === "activity" || !result.rowId || !result.section) {
+      openMolecule(result.activityId);
+      return;
+    }
+
+    setAutoOpenRowEditorSection(null);
+    setPendingSearchFocus({
+      activityId: result.activityId,
+      request: {
+        key: Date.now(),
+        kind: "row",
+        section: result.section,
+        rowId: result.rowId,
+        panel: result.kind === "ecoinvent_dataset" ? "dataset" : "details",
+      },
+    });
+    applyStateChange((current) => selectMolecule(ensureLinkedObjectReferenceOutputs(current), result.activityId), {
       markDirty: false,
     });
   };
@@ -202,8 +256,9 @@ export function WorkbenchApp() {
   };
 
   const openCreateDialog = (parentMoleculeId?: string) => {
-    setCreateDialogTitle(parentMoleculeId ? "Add child activity" : "Add main activity");
-    setCreateDialogSubmitLabel(parentMoleculeId ? "Add child activity" : "Add main activity");
+    const isFirstActivity = state.project.molecules.length === 0 && !parentMoleculeId;
+    setCreateDialogTitle(parentMoleculeId ? "Add child activity" : isFirstActivity ? "Add first activity" : "Add activity");
+    setCreateDialogSubmitLabel(parentMoleculeId ? "Add child activity" : isFirstActivity ? "Add" : "Add activity");
     setCreateDialogInitialValues(parentMoleculeId ? { topLevel: false, parentMoleculeId } : { topLevel: true, parentMoleculeId: "" });
     setPendingParentChildId(null);
     setCreateDialogOpen(true);
@@ -285,7 +340,7 @@ export function WorkbenchApp() {
     referenceAmount: draft.referenceAmount?.trim() || "1",
     referenceUnit: draft.referenceUnit?.trim() || "kg",
     objectKind: draft.objectKind ?? "generic_object",
-    name: (draft.referenceProductName || draft.name)?.trim() || "Untitled activity",
+    name: draft.name?.trim() || `Production of ${(draft.referenceProductName || "Untitled output").trim()}`,
     cas: draft.cas ?? "",
     iupac: draft.iupac ?? "",
     smiles: draft.smiles ?? "",
@@ -356,6 +411,8 @@ export function WorkbenchApp() {
           molecule={selectedMolecule}
           projectIssueFocus={pendingProjectIssue}
           onProjectIssueFocusHandled={() => setPendingProjectIssue(null)}
+          searchFocusRequest={pendingSearchFocus?.activityId === selectedMolecule.id ? pendingSearchFocus.request : null}
+          onSearchFocusRequestHandled={() => setPendingSearchFocus(null)}
           autoOpenRowEditor={autoOpenRowEditorSection}
           onAutoOpenRowEditorHandled={() => setAutoOpenRowEditorSection(null)}
           onBack={closeObjectInventory}
@@ -432,6 +489,8 @@ export function WorkbenchApp() {
           onCreateMolecule={(parentMoleculeId) => openCreateDialog(parentMoleculeId)}
           onNewProject={createNewProject}
           onOpenMolecule={openMolecule}
+          onOpenSearchResult={openProjectSearchResult}
+          onStartTutorial={() => void startTutorial()}
           onOpenProjectJson={(file) => void openProjectJson(file)}
           onOpenProjectReport={() => setSupportiveInformationDialogOpen(true)}
           onSaveProjectJson={downloadProjectJson}
@@ -441,6 +500,7 @@ export function WorkbenchApp() {
           onSearchQueryChange={setSearchQuery}
           project={state.project}
           searchQuery={searchQuery}
+          searchResults={searchResults}
           unresolvedMolecules={unresolvedMolecules}
           browserDraftRecovered={browserDraftRecovered}
           projectChecksActivityId={projectChecksActivityId}
@@ -479,12 +539,27 @@ export function WorkbenchApp() {
         onSubmit={handleCreateMolecule}
         open={createDialogOpen}
         parentSourceActivity={pendingParentSource ? {
-          activityName: `${pendingParentSource.activityType || "Production of"} ${pendingParentSource.referenceProductName || pendingParentSource.name}`.trim(),
+          activityName: pendingParentSource.name || "Untitled activity",
           outputName: pendingParentSource.referenceProductName || pendingParentSource.name,
         } : undefined}
+        showGettingStartedGuidance={state.project.molecules.length === 0}
         submitLabel={createDialogSubmitLabel}
         title={createDialogTitle}
       />
+
+      {tutorialStep !== null ? (
+        <GuidedTutorial
+          onKeepExample={() => setTutorialStep(null)}
+          onSkip={() => setTutorialStep(null)}
+          onStartNewProject={() => {
+            replaceSessionState(createEmptyWorkbenchState(), "clean");
+            setSearchQuery("");
+            setTutorialStep(null);
+          }}
+          onStepChange={navigateTutorial}
+          step={tutorialStep}
+        />
+      ) : null}
 
       {undoState ? (
         <div

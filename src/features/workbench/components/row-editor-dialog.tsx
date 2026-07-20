@@ -175,6 +175,27 @@ function convertMassValueToKg(value: string, unit: string) {
   return null;
 }
 
+function normalizeUnitForComparison(unit: string) {
+  const normalized = unit.trim().toLowerCase().replace(/\s+/g, " ");
+  const aliases: Record<string, string> = {
+    "item(s)": "item",
+    items: "item",
+    unit: "item",
+    units: "item",
+    kilogram: "kg",
+    kilograms: "kg",
+    gram: "g",
+    grams: "g",
+    litre: "l",
+    litres: "l",
+    liter: "l",
+    liters: "l",
+    "m^3": "m3",
+    "m³": "m3",
+  };
+  return aliases[normalized] ?? normalized;
+}
+
 function EditorSectionTab({
   label,
   active,
@@ -192,7 +213,7 @@ function EditorSectionTab({
 }) {
   return (
     <button
-      className={`flex w-full min-w-[10rem] items-center gap-3 rounded-sm border px-3 py-3 text-left text-sm transition lg:min-w-0 ${
+      className={`flex min-h-[4.25rem] w-full min-w-[10rem] items-center gap-3 rounded-sm border px-3 py-3 text-left text-sm transition lg:min-w-0 ${
         active ? "border-slate/60 bg-white/5 text-ink" : "border-transparent text-slate hover:bg-white/[0.035] hover:text-ink"
       }`}
       onClick={onClick}
@@ -201,6 +222,70 @@ function EditorSectionTab({
       <span className={`grid h-6 w-6 shrink-0 place-items-center rounded-full border text-[11px] font-semibold ${completed ? "border-slate text-ink" : "border-mist text-slate"}`}>{completed ? "✓" : index}</span>
       <span className="min-w-0 flex-1"><span className="block font-semibold">{label}</span>{status ? <span className="mt-0.5 block text-[10px] font-normal text-slate">{status}</span> : null}</span>
     </button>
+  );
+}
+
+function TrashIcon() {
+  return (
+    <svg aria-hidden="true" className="h-4 w-4" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" viewBox="0 0 24 24">
+      <path d="M4 7h16" />
+      <path d="M9 7V4h6v3" />
+      <path d="m7 7 1 13h8l1-13" />
+      <path d="M10 11v5M14 11v5" />
+    </svg>
+  );
+}
+
+function DataSourceOption({
+  actionLabel,
+  description,
+  disabled,
+  onRemove,
+  onSelect,
+  removeLabel,
+  selected,
+  title,
+  tutorialId,
+}: {
+  actionLabel: string;
+  description: string;
+  disabled: boolean;
+  onRemove: () => void;
+  onSelect: () => void;
+  removeLabel: string;
+  selected: boolean;
+  title: string;
+  tutorialId?: string;
+}) {
+  return (
+    <div className={`flex items-stretch rounded-sm border transition ${selected ? "border-slate bg-white/5" : disabled ? "border-mist/45 opacity-45" : "border-mist/60 hover:bg-white/[0.035]"}`} data-tutorial={tutorialId}>
+      <button
+        aria-pressed={selected}
+        className="flex min-w-0 flex-1 items-center justify-between gap-4 px-4 py-3 text-left text-sm text-slate disabled:cursor-not-allowed"
+        disabled={disabled}
+        onClick={onSelect}
+        type="button"
+      >
+        <span className="min-w-0">
+          <span className="block font-semibold text-ink">{title}</span>
+          <span className="mt-0.5 block text-xs">{description}</span>
+        </span>
+        <span className="shrink-0 text-xs font-semibold text-ink">{selected ? "Selected" : disabled ? "Locked" : actionLabel}</span>
+      </button>
+      {selected ? (
+        <div className="flex items-center border-l border-alert/25 px-2">
+          <button
+            aria-label={removeLabel}
+            className="grid h-9 w-9 place-items-center rounded-sm border border-alert/50 bg-alert/10 text-alert transition hover:border-alert hover:bg-alert/20"
+            onClick={onRemove}
+            title={removeLabel}
+            type="button"
+          >
+            <TrashIcon />
+          </button>
+        </div>
+      ) : null}
+    </div>
   );
 }
 
@@ -221,13 +306,14 @@ export function RowEditorDialog({
   const [draft, setDraft] = useState<RowDraft>(buildDraft(section, initialRow));
   const [searchQuery, setSearchQuery] = useState("");
   const [reuseSearchOpen, setReuseSearchOpen] = useState(false);
+  const [activityConnectionMode, setActivityConnectionMode] = useState<"existing" | "import">("existing");
   const [lookupOpen, setLookupOpen] = useState(false);
   const [ecoinventLookupOpen, setEcoinventLookupOpen] = useState(false);
   const [activePanel, setActivePanel] = useState<"details" | "dataset" | "notes">("details");
   const [linkedActivityNotice, setLinkedActivityNotice] = useState<string | null>(null);
   const [createdRowId, setCreatedRowId] = useState<string | null>(null);
   const [nameTipOpen, setNameTipOpen] = useState(false);
-  const [uncertaintyHelpOpen, setUncertaintyHelpOpen] = useState(false);
+  const [amountSourceHelpOpen, setAmountSourceHelpOpen] = useState(false);
   const [createLinkedActivityOpen, setCreateLinkedActivityOpen] = useState(false);
   const [importingActivity, setImportingActivity] = useState(false);
   const [importActivityError, setImportActivityError] = useState("");
@@ -241,12 +327,13 @@ export function RowEditorDialog({
     setDraft(buildDraft(section, initialRow));
     setSearchQuery("");
     setReuseSearchOpen(false);
+    setActivityConnectionMode("existing");
     setEcoinventLookupOpen(false);
     setActivePanel(initialPanel);
     setLinkedActivityNotice(null);
     setCreatedRowId(null);
     setNameTipOpen(false);
-    setUncertaintyHelpOpen(false);
+    setAmountSourceHelpOpen(false);
     setCreateLinkedActivityOpen(false);
     setImportingActivity(false);
     setImportActivityError("");
@@ -270,6 +357,35 @@ export function RowEditorDialog({
     };
   }, [highlightedField, open]);
 
+  useEffect(() => {
+    const handleTutorialStep = (event: Event) => {
+      const step = (event as CustomEvent<{ step: number }>).detail?.step;
+      if (typeof step !== "number") return;
+      if (step <= 8) {
+        onClose();
+        return;
+      }
+      if (step === 9) {
+        setEcoinventLookupOpen(false);
+        setActivePanel("details");
+      } else if (step === 10 || step === 11) {
+        setEcoinventLookupOpen(false);
+        setActivePanel("dataset");
+      } else if (step === 12) {
+        setActivePanel("dataset");
+        setEcoinventLookupOpen(true);
+      } else if (step === 14) {
+        setEcoinventLookupOpen(false);
+        setActivePanel("dataset");
+      } else if (step === 15) {
+        setEcoinventLookupOpen(false);
+        setActivePanel("notes");
+      }
+    };
+    window.addEventListener("lci:tutorial-step", handleTutorialStep);
+    return () => window.removeEventListener("lci:tutorial-step", handleTutorialStep);
+  }, [onClose]);
+
   const searchResults = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
     const ancestorIds = getAncestorIds(project, currentMolecule.id);
@@ -280,7 +396,15 @@ export function RowEditorDialog({
         if (!query) {
           return true;
         }
-        return [molecule.name, molecule.cas, molecule.iupac, ...molecule.synonyms, ...molecule.ecoinventAliases]
+        return [
+          molecule.name,
+          molecule.activityType,
+          molecule.referenceProductName,
+          molecule.cas,
+          molecule.iupac,
+          ...molecule.synonyms,
+          ...molecule.ecoinventAliases,
+        ]
           .join(" ")
           .toLowerCase()
           .includes(query);
@@ -378,11 +502,23 @@ export function RowEditorDialog({
   const userUnit = draft.unit.trim();
   const ecoinventUnit = draft.ecoinventUnit.trim();
   const hasUnitMismatch =
-    Boolean(userUnit && ecoinventUnit) && userUnit.toLowerCase() !== ecoinventUnit.toLowerCase();
+    Boolean(userUnit && ecoinventUnit) && normalizeUnitForComparison(userUnit) !== normalizeUnitForComparison(ecoinventUnit);
+  const selectedDataSource = isLinkedProjectItem
+    ? "activity"
+    : hasEcoinventMatch
+      ? "ecoinvent"
+      : draft.ecoinventStatus === "missing"
+        ? "missing"
+        : null;
   const canEditEcoinvent = identityComplete && !isReferenceOutputRow;
   const canEditDocumentation = identityComplete;
-  const canSave = requiredDetailsComplete;
-  const dataSourceComplete = isReferenceOutputRow || hasEcoinventMatch || isLinkedProjectItem || draft.ecoinventStatus === "missing";
+  const canSave = requiredDetailsComplete && !hasUnitMismatch;
+  const dataSourceComplete = isReferenceOutputRow || selectedDataSource !== null;
+  useEffect(() => {
+    if (!open || !selectedDataSource) return;
+    setReuseSearchOpen(false);
+    setSearchQuery("");
+  }, [open, selectedDataSource]);
   const rowEditorSteps = [
     {
       id: "details" as const,
@@ -413,12 +549,12 @@ export function RowEditorDialog({
       smiles: match.canonicalSmiles,
       formula: match.molecularFormula,
       pubchemMatch: match,
-      linkedMoleculeId: null,
     }));
     setLookupOpen(false);
   };
 
   const applyEcoinventMatch = (match: EcoinventDatasetMatch) => {
+    if (selectedDataSource && selectedDataSource !== "ecoinvent") return;
     setDraft((current) => ({
       ...current,
       linkedMoleculeId: null,
@@ -431,10 +567,30 @@ export function RowEditorDialog({
       ecoinventUnit: match.unit,
     }));
     setLinkedActivityNotice(null);
+    setReuseSearchOpen(false);
+    setSearchQuery("");
     setEcoinventLookupOpen(false);
   };
 
+  const clearDataSourceConnection = () => {
+    setDraft((current) => ({
+      ...current,
+      linkedMoleculeId: null,
+      ecoinventStatus: "unchecked",
+      ecoinventDatasetId: "",
+      ecoinventDatasetUuid: "",
+      ecoinventGeography: "",
+      ecoinventName: "",
+      ecoinventReferenceProduct: "",
+      ecoinventUnit: "",
+    }));
+    setLinkedActivityNotice(null);
+    setReuseSearchOpen(false);
+    setSearchQuery("");
+  };
+
   const markMissingFromEcoinvent = () => {
+    if (selectedDataSource && selectedDataSource !== "missing") return;
     setDraft((current) => ({
       ...current,
       ecoinventStatus: "missing",
@@ -448,6 +604,7 @@ export function RowEditorDialog({
   };
 
   const linkProjectActivity = (molecule: MoleculeRecord) => {
+    if (selectedDataSource && selectedDataSource !== "activity") return;
     setDraft((current) => ({
       ...current,
       linkedMoleculeId: molecule.id,
@@ -501,6 +658,7 @@ export function RowEditorDialog({
     rawEcoinventStatus: isReferenceOutputRow ? "OK" : resolutionLabels[isLinkedProjectItem ? "missing" : draft.ecoinventStatus],
   });
   const importActivityFile = async (file: File) => {
+    if (selectedDataSource && selectedDataSource !== "activity") return;
     const targetRowId = initialRow?.id ?? createdRowId ?? makeClientId("row");
     setImportingActivity(true);
     setImportActivityError("");
@@ -526,6 +684,7 @@ export function RowEditorDialog({
     });
   };
   const createLinkedActivityFromInput = (activityDraft: MoleculeDraft) => {
+    if (selectedDataSource && selectedDataSource !== "activity") return;
     const targetRowId = initialRow?.id ?? createdRowId ?? makeClientId("row");
     const payload = buildRowPayload(targetRowId);
     const childIsMolecule = draft.objectKind === "molecule";
@@ -536,7 +695,7 @@ export function RowEditorDialog({
       activityType: activityDraft.activityType || "Production of",
       referenceProductName: activityDraft.referenceProductName || draft.name,
       referenceUnit: draft.unit || "kg",
-      name: activityDraft.referenceProductName || draft.name,
+      name: activityDraft.name || `Production of ${activityDraft.referenceProductName || draft.name}`,
       cas: childIsMolecule ? draft.cas : "",
       iupac: childIsMolecule ? draft.iupac : "",
       smiles: childIsMolecule ? draft.smiles : "",
@@ -570,7 +729,8 @@ export function RowEditorDialog({
         <div
           aria-labelledby="inventory-flow-editor-title"
           aria-modal="true"
-          className="hero-surface flex max-h-[calc(100dvh-3rem)] w-full max-w-5xl flex-col overflow-hidden rounded-xl border border-white/70 shadow-xl"
+          className="hero-surface flex h-[calc(100dvh-3rem)] max-h-[52rem] w-full max-w-5xl flex-col overflow-hidden rounded-xl border border-white/70 shadow-xl"
+          data-tutorial="row-editor-dialog"
           role="dialog"
         >
         <div className="flex items-start justify-between gap-4 border-b border-mist/80 bg-white/90 px-5 py-4 backdrop-blur">
@@ -580,7 +740,7 @@ export function RowEditorDialog({
               {initialRow ? `Edit ${section.toLowerCase()}` : `Add ${section.toLowerCase()}`}
             </h2>
             {isReferenceOutputRow ? (
-              <div className="mt-1 text-sm text-slate">The reference output needs a name, positive amount, and unit.</div>
+              <div className="mt-1 text-sm text-slate">The main output needs a name, positive amount, and unit.</div>
             ) : null}
           </div>
           <button
@@ -615,6 +775,7 @@ export function RowEditorDialog({
           <section
             className={`rounded-md p-1 ${["details", "inputList", "referenceOutput"].includes(highlightedField) ? "ring-2 ring-accent/50 ring-offset-4 ring-offset-white" : ""}`}
             data-project-issue-field="details inputList referenceOutput"
+            data-tutorial="row-editor-details"
           >
             <div className="flex flex-wrap items-start justify-between gap-4">
               <div>
@@ -764,7 +925,7 @@ export function RowEditorDialog({
             </div>
 
             <div className="mt-5 border-t border-mist/60 pt-4">
-              <div className="relative flex items-start justify-between gap-3">
+              <div className="flex items-start justify-between gap-3">
                 <label className="flex cursor-pointer items-start gap-3">
                   <input
                     checked={draft.uncertaintyEnabled}
@@ -775,26 +936,10 @@ export function RowEditorDialog({
                   <span>
                     <span className="block text-sm font-semibold text-ink">Add uncertainty</span>
                     <span className="mt-0.5 block text-xs leading-5 text-slate">
-                      Add the lowest and highest plausible value for this {draft.section === "INPUT" ? "input" : "output"}.
+                      To account for possible uncertainties and variability in the modelled activity, where an amount varies or is not known precisely, a range or minimum and maximum values may also be provided.
                     </span>
                   </span>
                 </label>
-                <button
-                  aria-label="Why uncertainty matters"
-                  className="grid h-7 w-7 shrink-0 place-items-center rounded-md border border-helper/45 text-xs font-bold text-helper transition hover:border-helper hover:bg-helper-soft"
-                  onClick={() => setUncertaintyHelpOpen(true)}
-                  type="button"
-                >
-                  ?
-                </button>
-                {uncertaintyHelpOpen ? (
-                  <aside className="theme-popover absolute right-0 top-10 z-30 w-[min(27rem,calc(100vw-5rem))] rounded-md border border-helper/45 p-4 text-sm leading-6 text-slate" role="note">
-                    <span className="theme-popover absolute -top-2 right-2 h-4 w-4 rotate-45 border-l border-t border-helper/45" />
-                    <div className="flex items-start justify-between gap-3"><span className="font-semibold text-ink">Why uncertainty matters</span><button aria-label="Close uncertainty help" className="grid h-6 w-6 place-items-center text-base text-slate hover:text-ink" onClick={() => setUncertaintyHelpOpen(false)} type="button">×</button></div>
-                    <p className="mt-2">Inventory values are rarely exact. Record a plausible minimum and maximum so measurements, calculations, or estimates do not appear more precise than the evidence allows.</p>
-                    <p className="mt-2">Document whether the value was measured, calculated, or estimated in the Documentation step.</p>
-                  </aside>
-                ) : null}
               </div>
               {draft.uncertaintyEnabled ? (
                 <div className="mt-4 grid gap-3 sm:grid-cols-2">
@@ -827,12 +972,7 @@ export function RowEditorDialog({
               ) : null}
             </div>
 
-            <details className="mt-5 border-t border-mist/60">
-              <summary className="flex cursor-pointer list-none items-center justify-between gap-3 py-4 text-sm font-semibold text-ink">
-                <span>Advanced details</span>
-                <span className="text-xs font-normal text-slate">Optional</span>
-              </summary>
-              <div className="border-t border-mist/60 pt-4">
+            <div className="mt-5 border-t border-mist/60 pt-4">
             <div className="hidden">
               <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
                 <div>
@@ -851,7 +991,8 @@ export function RowEditorDialog({
                   </button>
                 ) : (
                   <button
-                    className="rounded-md border border-mist bg-white px-3 py-1.5 text-xs font-semibold text-slate transition hover:border-accent hover:text-accent"
+                    className="rounded-md border border-mist bg-white px-3 py-1.5 text-xs font-semibold text-slate transition hover:border-accent hover:text-accent disabled:cursor-not-allowed disabled:opacity-45"
+                    disabled={selectedDataSource !== null}
                     onClick={() => setReuseSearchOpen(true)}
                     type="button"
                   >
@@ -888,17 +1029,12 @@ export function RowEditorDialog({
                       {resolutionLabels[selectedMolecule.ecoinventStatus]}
                     </span>
                     <button
-                      className="rounded-md border border-mist px-3 py-1 text-xs font-medium text-slate transition hover:border-accent hover:text-accent"
-                      onClick={() =>
-                        setDraft((current) => ({
-                          ...current,
-                          linkedMoleculeId: null,
-                          pubchemMatch: current.pubchemMatch,
-                        }))
-                      }
+                      className="inline-flex items-center gap-2 rounded-sm border border-alert/50 bg-alert/10 px-3 py-1.5 text-xs font-semibold text-alert transition hover:border-alert hover:bg-alert/20"
+                      onClick={clearDataSourceConnection}
                       type="button"
                     >
-                      Clear link
+                      <TrashIcon />
+                      Remove connection
                     </button>
                   </div>
                 </div>
@@ -1057,44 +1193,114 @@ export function RowEditorDialog({
 	                />
               </label>
             </div>
-              </div>
-            </details>
+            </div>
           </section>
           ) : null}
 
           {activePanel === "dataset" ? (
-          <section className={`rounded-md p-1 ${highlightedField === "ecoinventDatasetId" ? "ring-2 ring-accent/50 ring-offset-4 ring-offset-white" : ""}`} data-project-issue-field="ecoinventDatasetId">
+          <section className={`rounded-md p-1 ${highlightedField === "ecoinventDatasetId" ? "ring-2 ring-accent/50 ring-offset-4 ring-offset-white" : ""}`} data-project-issue-field="ecoinventDatasetId" data-tutorial="row-editor-dataset">
 	            <div>
 	              <h3 className="text-lg font-semibold text-ink">How is this {draft.section === "INPUT" ? "input" : "output"} represented?</h3>
 	              <p className="mt-2 max-w-3xl text-sm leading-6 text-slate">Choose one data source. You can change this choice later.</p>
 	            </div>
                 {isReferenceOutputRow ? <div className="mt-5 border-l-2 border-slate px-4 py-3 text-sm text-slate">This is the activity’s main output; it does not need a background dataset.</div> : (
                   <div className="mt-5 grid gap-2">
-                    <button aria-pressed={hasEcoinventMatch} className={`flex items-center justify-between rounded-sm border px-4 py-3 text-left text-sm transition ${hasEcoinventMatch ? "border-slate bg-white/5 text-ink" : "border-mist/60 text-slate hover:bg-white/[0.035] hover:text-ink"}`} disabled={!canEditEcoinvent} onClick={() => setEcoinventLookupOpen(true)} type="button"><span><span className="block font-semibold text-ink">Link an ecoinvent dataset</span><span className="mt-0.5 block text-xs">Search background datasets by flow name.</span></span><span>{hasEcoinventMatch ? "✓" : "Search →"}</span></button>
-                    <button aria-pressed={isLinkedProjectItem || reuseSearchOpen} className={`flex items-center justify-between rounded-sm border px-4 py-3 text-left text-sm transition ${isLinkedProjectItem || reuseSearchOpen ? "border-slate bg-white/5 text-ink" : "border-mist/60 text-slate hover:bg-white/[0.035] hover:text-ink"}`} onClick={() => setReuseSearchOpen(true)} type="button"><span><span className="block font-semibold text-ink">Link, create, or import an activity</span><span className="mt-0.5 block text-xs">Use an activity from this project, model a new one, or import an exported activity file.</span></span><span>{isLinkedProjectItem ? "✓" : "Choose →"}</span></button>
-                    <button aria-pressed={draft.ecoinventStatus === "missing" && !isLinkedProjectItem} className={`flex items-center justify-between rounded-sm border px-4 py-3 text-left text-sm transition ${draft.ecoinventStatus === "missing" && !isLinkedProjectItem ? "border-slate bg-white/5 text-ink" : "border-mist/60 text-slate hover:bg-white/[0.035] hover:text-ink"}`} onClick={() => { markMissingFromEcoinvent(); setDraft((current) => ({ ...current, linkedMoleculeId: null })); setReuseSearchOpen(false); }} type="button"><span><span className="block font-semibold text-ink">No suitable dataset available</span><span className="mt-0.5 block text-xs">Keep the flow and mark its background data as missing.</span></span><span>{draft.ecoinventStatus === "missing" && !isLinkedProjectItem ? "✓ Selected" : "Select"}</span></button>
+                    <DataSourceOption
+                      actionLabel="Search →"
+                      description="Search background datasets by flow name."
+                      disabled={!canEditEcoinvent || (selectedDataSource !== null && selectedDataSource !== "ecoinvent")}
+                      onRemove={clearDataSourceConnection}
+                      onSelect={() => setEcoinventLookupOpen(true)}
+                      removeLabel="Remove database connection"
+                      selected={selectedDataSource === "ecoinvent"}
+                      title="Link an ecoinvent dataset"
+                      tutorialId="ecoinvent-option"
+                    />
+                    <DataSourceOption
+                      actionLabel="Choose →"
+                      description="Link an activity already in this project or import an activity JSON file."
+                      disabled={selectedDataSource !== null && selectedDataSource !== "activity"}
+                      onRemove={clearDataSourceConnection}
+                      onSelect={() => {
+                        if (selectedDataSource !== "activity") {
+                          setActivityConnectionMode("existing");
+                          setReuseSearchOpen(true);
+                        }
+                      }}
+                      removeLabel="Remove activity connection"
+                      selected={selectedDataSource === "activity"}
+                      title="Link or import an activity"
+                    />
+                    <DataSourceOption
+                      actionLabel="Select"
+                      description="Keep the flow and mark its background data as missing."
+                      disabled={selectedDataSource !== null && selectedDataSource !== "missing"}
+                      onRemove={clearDataSourceConnection}
+                      onSelect={() => {
+                        markMissingFromEcoinvent();
+                        setReuseSearchOpen(false);
+                      }}
+                      removeLabel="Remove missing-data selection"
+                      selected={selectedDataSource === "missing"}
+                      title="No suitable dataset available"
+                    />
                   </div>
                 )}
                 {reuseSearchOpen && !isReferenceOutputRow ? (
                   <div className="mt-5 border-t border-mist/60 pt-4">
-                    <div className="flex flex-wrap items-center justify-between gap-3">
-                      <div><div className="text-sm font-semibold text-ink">Activities in this project</div><div className="mt-0.5 text-xs text-slate">Link an existing activity, create one, or import a previously exported activity tree.</div></div>
-                      <div className="flex flex-wrap gap-2">
-                        <button className="rounded-sm border border-mist px-3 py-1.5 text-xs text-slate hover:text-ink" onClick={() => setCreateLinkedActivityOpen(true)} type="button">Create new activity</button>
-                        <button className="rounded-sm border border-mist px-3 py-1.5 text-xs text-slate hover:text-ink disabled:opacity-50" disabled={importingActivity} onClick={() => importActivityInputRef.current?.click()} type="button">{importingActivity ? "Importing…" : "Import activity from file"}</button>
-                        <input accept=".json,application/json" className="hidden" onChange={(event) => { const file = event.target.files?.[0]; if (file) void importActivityFile(file); event.target.value = ""; }} ref={importActivityInputRef} type="file" />
-                      </div>
+                    <div>
+                      <div className="text-sm font-semibold text-ink">Choose how to connect the activity</div>
+                      <div className="mt-1 text-xs leading-5 text-slate">Use an activity already defined in this project, or import an activity from a compatible JSON file.</div>
+                    </div>
+                    <div aria-label="Activity connection method" className="mt-4 grid grid-cols-2 rounded-md border border-mist/70 bg-lab p-1" role="group">
+                      <button
+                        aria-pressed={activityConnectionMode === "existing"}
+                        className={`min-h-10 rounded-sm px-3 text-sm font-semibold transition ${activityConnectionMode === "existing" ? "bg-white text-ink shadow-sm" : "text-slate hover:text-ink"}`}
+                        onClick={() => { setActivityConnectionMode("existing"); setImportActivityError(""); }}
+                        type="button"
+                      >Existing activity</button>
+                      <button
+                        aria-pressed={activityConnectionMode === "import"}
+                        className={`min-h-10 rounded-sm px-3 text-sm font-semibold transition ${activityConnectionMode === "import" ? "bg-white text-ink shadow-sm" : "text-slate hover:text-ink"}`}
+                        onClick={() => { setActivityConnectionMode("import"); setSearchQuery(""); }}
+                        type="button"
+                      >Import JSON</button>
                     </div>
                     {importActivityError ? <div className="mt-3 rounded-md border border-alert/30 bg-alert/10 px-3 py-2 text-xs leading-5 text-alert">{importActivityError}</div> : null}
-                    <input className="mt-3 w-full rounded-sm border border-mist bg-white px-3 py-2.5 text-sm text-ink outline-none focus:border-slate" onChange={(event) => setSearchQuery(event.target.value)} placeholder="Search project activities" value={searchQuery} />
-                    <div className="mt-2 max-h-48 space-y-1 overflow-y-auto">
-                      {searchResults.filter((item): item is Extract<ProjectItemResult, { kind: "molecule" }> => item.kind === "molecule").map((item) => <button className="flex w-full items-center justify-between rounded-sm px-3 py-2 text-left text-sm text-slate hover:bg-white/5 hover:text-ink" key={item.id} onClick={() => linkProjectActivity(item.molecule)} type="button"><span>{item.molecule.name}</span><span className="text-xs">Link</span></button>)}
-                    </div>
+                    {activityConnectionMode === "existing" ? (
+                      <div className="mt-4">
+                        <label className="text-xs font-semibold text-ink" htmlFor="existing-activity-search">Search existing activities</label>
+                        <p className="mt-1 text-xs leading-5 text-slate">Search by activity name, main output, synonym, or linked ecoinvent name.</p>
+                        <input id="existing-activity-search" className="mt-2 w-full rounded-sm border border-mist bg-white px-3 py-2.5 text-sm text-ink outline-none focus:border-slate" onChange={(event) => setSearchQuery(event.target.value)} placeholder="Search by activity name or main output" value={searchQuery} />
+                        <div className="mt-2 max-h-52 space-y-1 overflow-y-auto">
+                          {searchResults.filter((item): item is Extract<ProjectItemResult, { kind: "molecule" }> => item.kind === "molecule").map((item) => {
+                            const mainOutput = item.molecule.rows.find((row) => row.section === "OUTPUT" && row.order === 1);
+                            return (
+                              <button className="flex w-full items-center justify-between gap-4 rounded-sm border border-transparent px-3 py-2.5 text-left text-sm text-slate transition hover:border-mist/70 hover:bg-white hover:text-ink" key={item.id} onClick={() => linkProjectActivity(item.molecule)} type="button">
+                                <span className="min-w-0">
+                                  <span className="block truncate font-semibold text-ink">{item.molecule.name}</span>
+                                  <span className="mt-0.5 block truncate text-xs text-slate">Main output: {item.molecule.referenceProductName || mainOutput?.name || "Not defined"}{mainOutput?.totalValue ? ` · ${mainOutput.totalValue} ${mainOutput.unit}` : ""}</span>
+                                </span>
+                                <span className="shrink-0 text-xs font-semibold text-accent">Link</span>
+                              </button>
+                            );
+                          })}
+                          {searchResults.filter((item) => item.kind === "molecule").length === 0 ? <div className="rounded-sm border border-dashed border-mist px-3 py-4 text-center text-xs text-slate">No matching activity in this project.</div> : null}
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="mt-4 rounded-md border border-mist/70 bg-lab px-4 py-4">
+                        <div className="text-sm font-semibold text-ink">Import an activity JSON</div>
+                        <p className="mt-1 text-xs leading-5 text-slate">Select a JSON file exported from this tool. The imported activity and its connected foreground activities will be added to this project and linked to the current flow.</p>
+                        <button className="mt-4 rounded-sm border border-mist bg-white px-4 py-2.5 text-sm font-semibold text-ink transition hover:border-accent hover:text-accent disabled:cursor-wait disabled:opacity-50" disabled={importingActivity} onClick={() => importActivityInputRef.current?.click()} type="button">{importingActivity ? "Importing…" : "Choose JSON file"}</button>
+                        <input accept=".json,application/json" className="hidden" onChange={(event) => { const file = event.target.files?.[0]; if (file) void importActivityFile(file); event.target.value = ""; }} ref={importActivityInputRef} type="file" />
+                      </div>
+                    )}
                   </div>
                 ) : null}
 	            {isReferenceOutputRow ? (
 	              <div className="mt-4 rounded-lg border border-accent/20 bg-accent/10 px-4 py-3 text-sm font-semibold text-accent">
-	                Reference product output
+	                Main output
 	              </div>
 	            ) : isLinkedProjectItem ? (
 	              <div className={`mt-4 rounded-lg border px-4 py-4 ${linkedActivityNotice ? "border-sea/25 bg-sea/10" : "border-accent/20 bg-accent-soft/60"}`}>
@@ -1122,7 +1328,7 @@ export function RowEditorDialog({
 	              </div>
             ) : hasEcoinventMatch ? (
               <div className="mt-4 grid gap-4">
-                <div className="flex flex-wrap items-center justify-between gap-3 border-l-2 border-slate px-4 py-2"><div><div className="text-sm font-semibold text-ink">Dataset linked</div><div className="mt-0.5 text-xs text-slate">{draft.ecoinventName || "Selected ecoinvent dataset"}{draft.ecoinventGeography ? ` — ${draft.ecoinventGeography}` : ""}</div></div><button className="rounded-sm border border-mist px-3 py-1.5 text-xs text-slate hover:text-ink" onClick={() => setEcoinventLookupOpen(true)} type="button">Change dataset</button></div>
+                <div className="flex flex-wrap items-center justify-between gap-3 border-l-2 border-slate px-4 py-2" data-tutorial="linked-dataset"><div><div className="text-sm font-semibold text-ink">Dataset linked</div><div className="mt-0.5 text-xs text-slate">{draft.ecoinventName || "Selected ecoinvent dataset"}{draft.ecoinventGeography ? ` — ${draft.ecoinventGeography}` : ""}</div></div><button className="rounded-sm border border-mist px-3 py-1.5 text-xs text-slate hover:text-ink" onClick={() => setEcoinventLookupOpen(true)} type="button">Change dataset</button></div>
                 <div className="rounded-lg border border-accent/20 bg-lab px-4 py-3">
                   <div className="text-[11px] font-semibold text-slate">
                     Exact ecoinvent name
@@ -1147,22 +1353,30 @@ export function RowEditorDialog({
                   </div>
                 ) : null}
               </div>
+            ) : draft.ecoinventStatus === "missing" ? (
+              <div className="mt-4 flex flex-wrap items-center justify-between gap-4 rounded-lg border border-mist bg-lab px-4 py-4">
+                <div>
+                  <div className="text-sm font-semibold text-ink">Create an activity for this input</div>
+                  <div className="mt-1 text-xs leading-5 text-slate">
+                    Model its inputs and outputs as a foreground activity in this project.
+                  </div>
+                </div>
+                <button
+                  className="rounded-sm border border-mist bg-white px-3 py-2 text-sm font-semibold text-ink transition hover:border-accent hover:text-accent"
+                  onClick={() => {
+                    clearDataSourceConnection();
+                    setCreateLinkedActivityOpen(true);
+                  }}
+                  type="button"
+                >
+                  Create activity
+                </button>
+              </div>
             ) : (
               <div className="mt-4 rounded-lg border border-dashed border-mist bg-lab px-4 py-5 text-sm leading-6 text-slate">
-                {draft.ecoinventStatus === "missing"
-                  ? "Marked as missing from ecoinvent. If this input needs modelling, create an activity for this input."
-                  : "No ecoinvent dataset selected yet. Search ecoinvent, or mark the item as missing."}
+                No ecoinvent dataset selected yet. Search ecoinvent, or mark the item as missing.
               </div>
             )}
-	            {false && draft.section === "INPUT" && draft.ecoinventStatus === "missing" && !isLinkedProjectItem ? (
-              <button
-                className="mt-4 rounded-md border border-mist px-4 py-2 text-sm font-medium text-slate transition hover:border-accent hover:text-accent"
-                onClick={() => setCreateLinkedActivityOpen(true)}
-                type="button"
-              >
-                Model this input as a new activity
-              </button>
-            ) : null}
           </section>
           ) : null}
 
@@ -1171,6 +1385,7 @@ export function RowEditorDialog({
             className={`p-1 transition ${
               canEditDocumentation ? "" : "pointer-events-none opacity-45"
             }`}
+            data-tutorial="row-editor-notes"
           >
             <h3 className="text-lg font-semibold text-ink">Documentation</h3>
             {!canEditDocumentation ? (
@@ -1179,10 +1394,32 @@ export function RowEditorDialog({
               </p>
             ) : null}
             <div className="mt-4 grid gap-4">
-              <fieldset className="border-b border-mist/60 pb-5">
-                <legend className="px-1 text-sm font-semibold text-ink">
-                  How was this {draft.uncertaintyEnabled ? "amount or range" : "amount"} obtained?
+              <fieldset className="relative border-b border-mist/60 pb-5">
+                <legend className="px-1">
+                  <span className="inline-flex items-center gap-2 text-sm font-semibold text-ink">
+                    How was this {draft.uncertaintyEnabled ? "amount or range" : "amount"} obtained?
+                    <button
+                      aria-label="About how the amount was obtained"
+                      className="grid h-6 w-6 shrink-0 place-items-center rounded-sm border border-helper/45 text-xs font-bold text-helper transition hover:border-helper hover:bg-helper-soft"
+                      onClick={() => setAmountSourceHelpOpen((current) => !current)}
+                      type="button"
+                    >?</button>
+                  </span>
                 </legend>
+                {amountSourceHelpOpen ? (
+                  <aside className="theme-popover mt-3 rounded-md border border-helper/45 p-4 text-sm leading-6 text-slate" role="note">
+                    <div className="flex items-start justify-between gap-3">
+                      <span className="font-semibold text-ink">How amounts may be obtained</span>
+                      <button aria-label="Close amount source help" className="grid h-6 w-6 place-items-center text-base text-slate hover:text-ink" onClick={() => setAmountSourceHelpOpen(false)} type="button">×</button>
+                    </div>
+                    <p className="mt-2">These amounts may be:</p>
+                    <ol className="mt-1 list-decimal space-y-1 pl-5">
+                      <li>measured (power consumption measured using a Kill-A-Watt meter)</li>
+                      <li>calculated (heating energy calculated by means of thermodynamic formulas)</li>
+                      <li>estimated (value estimated through expert judgement).</li>
+                    </ol>
+                  </aside>
+                ) : null}
                 <div className="mt-3 grid gap-2 sm:grid-cols-3">
                   {(["measured", "calculated", "estimated"] as const).map((source) => (
                     <button
@@ -1241,7 +1478,9 @@ export function RowEditorDialog({
 
         <div className="flex flex-col items-stretch gap-3 border-t border-mist/80 bg-white/90 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-5 sm:py-4">
           <div className="text-sm text-alert">
-            {!canSave && uncertaintyInvalid
+            {hasUnitMismatch
+              ? `Unit mismatch: change the flow unit to ${draft.ecoinventUnit || "the dataset unit"}, or remove the database connection.`
+              : !canSave && uncertaintyInvalid
               ? "Check the uncertainty range."
               : !canSave && (amountInvalid || referenceAmountInvalid)
                 ? "Enter a valid amount."
@@ -1250,7 +1489,7 @@ export function RowEditorDialog({
           <div className="flex flex-wrap items-center justify-end gap-2">
             {activePanel === "details" ? <button className="rounded-sm px-3 py-2 text-sm font-medium text-slate transition hover:bg-white/5 hover:text-ink" onClick={onClose} type="button">Cancel</button> : <button className="rounded-sm px-3 py-2 text-sm font-medium text-slate transition hover:bg-white/5 hover:text-ink" onClick={() => setActivePanel(activePanel === "notes" ? "dataset" : "details")} type="button">Back</button>}
             {activePanel !== "notes" ? (
-              <button className="rounded-sm bg-accent px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#ad4141] disabled:cursor-not-allowed disabled:bg-mist" disabled={activePanel === "details" ? !requiredDetailsComplete : !dataSourceComplete} onClick={() => setActivePanel(activePanel === "details" ? "dataset" : "notes")} type="button">Next: {activePanel === "details" ? "Data source" : "Documentation"}</button>
+              <button className="rounded-sm bg-accent px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#ad4141] disabled:cursor-not-allowed disabled:bg-mist" data-tutorial={activePanel === "dataset" ? "row-editor-next-documentation" : undefined} disabled={activePanel === "details" ? !requiredDetailsComplete : !dataSourceComplete} onClick={() => setActivePanel(activePanel === "details" ? "dataset" : "notes")} type="button">Next: {activePanel === "details" ? "Data source" : "Documentation"}</button>
             ) : (
               <button className="rounded-sm bg-accent px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#ad4141] disabled:cursor-not-allowed disabled:bg-mist" disabled={!canSave} onClick={() => { if (!canSave) return; const targetRowId = initialRow?.id ?? createdRowId ?? makeClientId("row"); onSave(buildRowPayload(targetRowId), targetRowId); }} type="button">{initialRow ? `Save ${draft.section.toLowerCase()}` : `Add ${draft.section.toLowerCase()}`}</button>
             )}

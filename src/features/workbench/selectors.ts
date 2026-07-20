@@ -45,6 +45,33 @@ export type ProjectValidationIssue = {
   };
 };
 
+export type ProjectSearchResult = {
+  id: string;
+  kind: "activity" | "input" | "output" | "ecoinvent_dataset";
+  activityId: string;
+  rowId: string | null;
+  section: ReconstructionRow["section"] | null;
+  title: string;
+  context: string;
+  amount: string;
+  unit: string;
+  score: number;
+};
+
+export function getProductSystemRoots(project: ProjectRecord) {
+  const incomingActivityIds = new Set(project.links.map((link) => link.childMoleculeId));
+
+  return project.molecules
+    .filter((molecule) => !incomingActivityIds.has(molecule.id))
+    .sort((left, right) => {
+      if (left.topLevel !== right.topLevel) return left.topLevel ? -1 : 1;
+      const leftOrder = left.rootOrder || Number.MAX_SAFE_INTEGER;
+      const rightOrder = right.rootOrder || Number.MAX_SAFE_INTEGER;
+      if (leftOrder !== rightOrder) return leftOrder - rightOrder;
+      return left.name.localeCompare(right.name);
+    });
+}
+
 function parseReviewNumber(value: string) {
   const parsed = Number(value.replace(",", ".").trim());
   return Number.isFinite(parsed) ? parsed : null;
@@ -218,15 +245,15 @@ function getProjectIssueMessage(issue: InventoryReviewIssue) {
   const flowType = issue.section === "OUTPUT" ? "Output" : "Input";
   const flowName = issue.rowName?.trim();
 
-  if (issue.label === "Missing reference amount") return "Reference output has no amount";
-  if (issue.label === "Invalid reference amount") return "Reference output amount must be greater than zero";
-  if (issue.label === "Missing reference unit") return "Reference output has no unit";
+  if (issue.label === "Missing reference amount") return "Main output has no amount";
+  if (issue.label === "Invalid reference amount") return "Main output amount must be greater than zero";
+  if (issue.label === "Missing reference unit") return "Main output has no unit";
   if (issue.label === "No dataset connection") return `${flowType} “${flowName || "unnamed flow"}” has no dataset`;
   if (issue.label === "Review the selected dataset") return `${flowType} “${flowName || "unnamed flow"}” dataset needs review`;
   if (issue.label === "Missing amount") return `${flowType} “${flowName || "unnamed flow"}” has no amount`;
   if (issue.label === "Missing unit") return `${flowType} “${flowName || "unnamed flow"}” has no unit`;
   if (issue.label === "Linked activity has no output") return `Linked activity for “${flowName || "unnamed flow"}” has no output`;
-  if (issue.label === "Add the activity's main output") return "Activity has no reference output";
+  if (issue.label === "Add the activity's main output") return "Activity has no main output";
   if (issue.label === "Add the first input") return "Activity has no inputs";
   if (issue.label === "Add activity context and traceability") return "Activity context or sources are incomplete";
   return issue.label;
@@ -237,7 +264,7 @@ function getProjectIssueMessage(issue: InventoryReviewIssue) {
  * activity tree, and issue navigation. UI components must not recreate checks.
  */
 export function validateProject(project: ProjectRecord): ProjectValidationIssue[] {
-  return project.molecules.flatMap((molecule) =>
+  const activityIssues: ProjectValidationIssue[] = project.molecules.flatMap((molecule) =>
     getMoleculeInventoryReviewIssues(project, molecule).map((issue) => {
       const tab: ProjectIssueTab =
         issue.target === "documentation"
@@ -265,6 +292,24 @@ export function validateProject(project: ProjectRecord): ProjectValidationIssue[
       };
     }),
   );
+
+  const productSystemRoots = getProductSystemRoots(project);
+  const mainActivity = productSystemRoots[0];
+  const connectivityIssues: ProjectValidationIssue[] = mainActivity
+    ? productSystemRoots.slice(1).map((activity) => ({
+        id: `${activity.id}:product-system:disconnected`,
+        activityId: activity.id,
+        severity: "error",
+        message: "Activity is disconnected from the main product system",
+        target: {
+          tab: "inputs",
+          field: "connection",
+          activityId: mainActivity.id,
+        },
+      }))
+    : [];
+
+  return [...connectivityIssues, ...activityIssues];
 }
 
 export function getMoleculeInventoryReviewState(
@@ -545,4 +590,119 @@ export function getHierarchySearchMatches(project: ProjectRecord, query: string)
   }
 
   return project.molecules.filter((molecule) => buildMoleculeSearchableText(project, molecule).includes(normalizedQuery));
+}
+
+function searchMatchScore(query: string, title: string, searchableValues: string[]) {
+  const normalizedQuery = normalizeText(query);
+  if (!normalizedQuery) return null;
+
+  const normalizedTitle = normalizeText(title);
+  const searchableText = normalizeText(searchableValues.filter(Boolean).join(" "));
+  const queryTokens = normalizedQuery.split(" ").filter(Boolean);
+  if (!queryTokens.every((token) => searchableText.includes(token))) return null;
+
+  if (normalizedTitle === normalizedQuery) return 0;
+  if (normalizedTitle.startsWith(normalizedQuery)) return 1;
+  if (normalizedTitle.includes(normalizedQuery)) return 2;
+  return 3;
+}
+
+export function getProjectSearchResults(project: ProjectRecord, query: string): ProjectSearchResult[] {
+  const normalizedQuery = normalizeText(query);
+  if (!normalizedQuery) return [];
+
+  const results: ProjectSearchResult[] = [];
+
+  for (const molecule of project.molecules) {
+    const referenceProduct = getReferenceProductRow(molecule);
+    const activityTitle = molecule.name || "Untitled activity";
+    const activityScore = searchMatchScore(query, activityTitle, [
+      activityTitle,
+      molecule.name,
+      molecule.referenceProductName,
+      molecule.cas,
+      molecule.iupac,
+      molecule.smiles,
+      molecule.notes,
+      ...molecule.synonyms,
+      ...molecule.ecoinventAliases,
+      molecule.ecoinventCheck?.datasetName ?? "",
+      molecule.ecoinventCheck?.searchQuery ?? "",
+    ]);
+
+    if (activityScore !== null) {
+      results.push({
+        id: `activity:${molecule.id}`,
+        kind: "activity",
+        activityId: molecule.id,
+        rowId: null,
+        section: null,
+        title: activityTitle,
+        context: molecule.referenceProductName || "Main output not named",
+        amount: referenceProduct?.totalValue || referenceProduct?.totalScaledValue || "",
+        unit: referenceProduct?.unit || referenceProduct?.scaledUnit || "",
+        score: activityScore,
+      });
+    }
+
+    for (const row of molecule.rows) {
+      const rowScore = searchMatchScore(query, row.name, [
+        row.name,
+        ...row.synonyms,
+        row.ro,
+        row.cas,
+        row.iupac,
+        row.smiles,
+        row.formula,
+        row.description,
+        row.reference,
+        row.notes,
+        row.relevant,
+      ]);
+      if (rowScore !== null) {
+        results.push({
+          id: `flow:${molecule.id}:${row.id}`,
+          kind: row.section === "INPUT" ? "input" : "output",
+          activityId: molecule.id,
+          rowId: row.id,
+          section: row.section,
+          title: row.name || `Unnamed ${row.section.toLowerCase()}`,
+          context: activityTitle,
+          amount: row.totalValue || row.totalScaledValue,
+          unit: row.unit || row.scaledUnit,
+          score: rowScore,
+        });
+      }
+
+      const datasetTitle = row.ecoinventName || row.ecoinventReferenceProduct;
+      const datasetScore = datasetTitle
+        ? searchMatchScore(query, datasetTitle, [
+            row.ecoinventName,
+            row.ecoinventReferenceProduct,
+            row.ecoinventGeography,
+            row.ecoinventDatasetId,
+            row.ecoinventDatasetUuid,
+            row.ecoinventUnit,
+          ])
+        : null;
+      if (datasetScore !== null) {
+        results.push({
+          id: `dataset:${molecule.id}:${row.id}`,
+          kind: "ecoinvent_dataset",
+          activityId: molecule.id,
+          rowId: row.id,
+          section: row.section,
+          title: datasetTitle,
+          context: `${row.name || "Unnamed flow"} in ${activityTitle}`,
+          amount: row.totalValue || row.totalScaledValue,
+          unit: row.unit || row.scaledUnit,
+          score: datasetScore,
+        });
+      }
+    }
+  }
+
+  return results
+    .sort((left, right) => left.score - right.score || left.title.localeCompare(right.title) || left.context.localeCompare(right.context))
+    .slice(0, 80);
 }

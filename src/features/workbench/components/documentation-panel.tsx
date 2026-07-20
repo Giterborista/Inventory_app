@@ -22,13 +22,15 @@ export function DocumentationPanel({
 }: DocumentationPanelProps) {
   const contextRef = useRef<HTMLTextAreaElement>(null);
   const traceabilityRef = useRef<HTMLTextAreaElement>(null);
+  const documentationRef = useRef(documentation);
   const [helpOpen, setHelpOpen] = useState(false);
+  documentationRef.current = documentation;
 
   useEffect(() => {
     if (!focusMissingField) {
       return;
     }
-    const target = !documentation.referenceAndScope.trim() ? contextRef.current : traceabilityRef.current;
+    const target = !documentationRef.current.referenceAndScope.trim() ? contextRef.current : traceabilityRef.current;
     target?.scrollIntoView({ behavior: "smooth", block: "center" });
     target?.focus({ preventScroll: true });
     target?.classList.add("project-issue-highlight");
@@ -37,7 +39,7 @@ export function DocumentationPanel({
       window.clearTimeout(timer);
       target?.classList.remove("project-issue-highlight");
     };
-  }, [documentation.referenceAndScope, focusMissingField]);
+  }, [focusMissingField]);
 
   return (
     <>
@@ -72,10 +74,9 @@ export function DocumentationPanel({
               className={`${fieldClassName} min-h-40`}
               id="activity-context-boundary"
               onChange={(event) => onChange("referenceAndScope", event.target.value)}
-              placeholder="Describe the activity context and boundary"
+              placeholder="Pilot-scale membrane production in Switzerland, 2025; preparation and curing included, packaging excluded."
               value={documentation.referenceAndScope}
             />
-            <p className="mt-2 text-xs leading-5 text-slate">Example: Pilot-scale membrane production in Switzerland, 2025; preparation and curing included, packaging excluded.</p>
           </section>
 
           <section className="mt-7 border-t border-mist/60 pt-6">
@@ -88,10 +89,9 @@ export function DocumentationPanel({
               className={`${fieldClassName} min-h-40`}
               id="activity-sources-assumptions"
               onChange={(event) => onChange("calculationNotes", event.target.value)}
-              placeholder="Record sources, calculations and assumptions"
+              placeholder="Supplier material data; energy calculated from equipment power and operating time; transport distance estimated."
               value={documentation.calculationNotes}
             />
-            <p className="mt-2 text-xs leading-5 text-slate">Example: Supplier material data; energy calculated from equipment power and operating time; transport distance estimated.</p>
           </section>
         </div>
       </section>

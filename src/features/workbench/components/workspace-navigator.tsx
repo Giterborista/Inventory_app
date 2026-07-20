@@ -22,9 +22,7 @@ type WorkspaceNavigatorProps = {
 };
 
 function activityLabel(molecule: MoleculeRecord) {
-  return `${molecule.activityType || "Production of"} ${
-    molecule.referenceProductName || molecule.name || "Untitled activity"
-  }`.trim();
+  return molecule.name || "Untitled activity";
 }
 
 function TreeRow({
@@ -97,7 +95,7 @@ function TreeRow({
           {reviewState === "alert" ? <span aria-label="Needs attention" className="h-2 w-2 shrink-0 rounded-full bg-alert" /> : null}
           <span>
             <span className={`block whitespace-nowrap text-sm ${selected ? "font-semibold" : "font-medium"}`}>
-              {molecule.referenceProductName || molecule.name || "Untitled activity"}
+              {activityLabel(molecule)}
             </span>
             <span className="block whitespace-nowrap text-[11px] text-slate/75">
               {inputCount} input{inputCount === 1 ? "" : "s"}
@@ -163,15 +161,12 @@ export function WorkspaceNavigator({
   }, [matches, project, query, selectedMoleculeId]);
 
   return (
-    <aside className="workspace-rail flex h-full min-h-0 flex-col overflow-hidden rounded-xl border border-mist lg:min-h-[calc(100vh-2rem)]">
+    <aside className="workspace-rail flex h-full min-h-0 flex-col overflow-hidden rounded-xl border border-mist md:min-h-[calc(100vh-2rem)]">
       <div className="border-b border-mist/70 bg-white p-4">
         <div className="flex items-center justify-between gap-3">
           <div className="flex min-w-0 items-center gap-3">
             <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-accent text-xs font-bold tracking-wide text-white shadow-sm">LCI</span>
-            <div className="min-w-0">
-              <div className="truncate text-sm font-semibold text-ink">{project.name}</div>
-              <div className="text-xs text-slate">Project</div>
-            </div>
+            <div className="text-sm font-semibold text-ink">Inventory Builder</div>
           </div>
           <ThemeToggle />
         </div>
@@ -198,7 +193,7 @@ export function WorkspaceNavigator({
         </label>
       </div>
 
-      <div className="flex max-h-72 min-h-0 flex-1 flex-col px-2 py-3 lg:max-h-none">
+      <div className="flex max-h-72 min-h-0 flex-1 flex-col px-2 py-3 md:max-h-none">
         <div className="mb-2 flex items-center justify-between px-2">
           <h2 className="text-xs font-semibold uppercase tracking-[0.1em] text-slate">Project structure</h2>
           <button

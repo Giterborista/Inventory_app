@@ -8,6 +8,7 @@ import {
   getLinkedMolecule,
   getMoleculeRows,
   getRowInventoryReviewIssues,
+  getProductSystemRoots,
   getTopLevelMolecules,
 } from "@/features/workbench/selectors";
 import type { ProjectValidationIssue } from "@/features/workbench/selectors";
@@ -24,6 +25,7 @@ type HierarchyTreeProps = {
   onCreateTopLevelMolecule: () => void;
   projectIssues: ProjectValidationIssue[];
   onOpenActivityIssues: (activityId: string) => void;
+  onStartTutorial: () => void;
 };
 
 function IngredientNode({
@@ -102,10 +104,7 @@ function TreeNode({
   isLast?: boolean;
 }) {
   const activityIssueCount = projectIssues.filter((issue) => issue.activityId === molecule.id).length;
-  const referenceProductName = molecule.referenceProductName || molecule.name;
-  const activityLabel = `${molecule.activityType || "Production of"} ${
-    referenceProductName || "untitled reference product"
-  }`.trim();
+  const activityLabel = molecule.name || "Untitled activity";
   const childMolecules = getChildMolecules(project, molecule.id).filter((child) => !visibleIds || visibleIds.has(child.id));
   const inputRows = getMoleculeRows(molecule, "INPUT");
   const outputCount = getMoleculeRows(molecule, "OUTPUT").length;
@@ -128,6 +127,7 @@ function TreeNode({
   const cycleDetected = path.has(molecule.id);
   const expanded = hasChildren && (expandedIds.has(molecule.id) || depth === 0);
   const selected = selectedMoleculeId === molecule.id;
+  const mainActivityId = getProductSystemRoots(project)[0]?.id;
 
   if (visibleIds && !visibleIds.has(molecule.id)) {
     return null;
@@ -137,6 +137,7 @@ function TreeNode({
     <div>
       <div
         aria-selected={selected}
+        data-tutorial={molecule.id === mainActivityId ? "main-activity" : undefined}
         className={`group relative flex min-h-[4.75rem] cursor-pointer items-center border-b border-mist/60 pr-3 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/40 ${selected ? "bg-accent/[0.055] before:absolute before:inset-y-2 before:left-0 before:w-1 before:rounded-r before:bg-accent" : "hover:bg-lab/70"}`}
         onClick={() => {
           onSelectMolecule(molecule.id);
@@ -181,7 +182,7 @@ function TreeNode({
         <div className="min-w-0 flex-1 py-3">
           <div className="truncate text-sm font-semibold text-ink">{activityLabel}</div>
           <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-slate">
-            <span>{depth === 0 ? (molecule.topLevel ? "Main activity" : "Independent activity") : viaRow?.totalValue ? `${viaRow.totalValue} ${viaRow.unit}` : "Child activity"}</span>
+            <span>{depth === 0 ? (molecule.id === mainActivityId ? "Main activity" : "Disconnected activity") : viaRow?.totalValue ? `${viaRow.totalValue} ${viaRow.unit}` : "Child activity"}</span>
             <span aria-hidden="true">·</span>
             <span>{inputRows.length} input{inputRows.length === 1 ? "" : "s"} · {outputCount} output{outputCount === 1 ? "" : "s"}</span>
           </div>
@@ -262,6 +263,7 @@ export function HierarchyTree({
   onCreateTopLevelMolecule,
   projectIssues,
   onOpenActivityIssues,
+  onStartTutorial,
 }: HierarchyTreeProps) {
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const [openMenuId, setOpenMenuId] = useState("");
@@ -330,8 +332,13 @@ export function HierarchyTree({
                 onClick={onCreateTopLevelMolecule}
                 type="button"
               >
-                + Add main activity
+                + Add first activity
               </button>
+              <div className="mt-6 max-w-lg border-l-2 border-accent bg-accent-soft/60 px-4 py-3">
+                <div className="text-sm font-semibold text-ink">First time using this tool?</div>
+                <p className="mt-1 text-xs leading-5 text-slate">Open an example project and follow a guided tutorial.</p>
+                <button className="mt-3 rounded-sm border border-accent/40 bg-white px-3 py-2 text-sm font-semibold text-accent transition hover:bg-accent hover:text-white" onClick={onStartTutorial} type="button">Open example project and tutorial</button>
+              </div>
             </div>
           </div>
         )}

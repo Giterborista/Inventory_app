@@ -1,8 +1,11 @@
 "use client";
 
+import Image from "next/image";
 import { type FormEvent, useEffect, useState } from "react";
 
 import type { EcoinventDatasetMatch } from "@/features/workbench/types";
+
+import databaseConnectionImage from "../../../../Pictures/Picture3.png";
 
 type EcoinventLookupDialogProps = {
   open: boolean;
@@ -251,6 +254,9 @@ export function EcoinventLookupDialog({ open, initialQuery, context, onClose, on
   const [aiPassword, setAiPassword] = useState("");
   const [aiPasswordError, setAiPasswordError] = useState("");
   const [aiAuthenticating, setAiAuthenticating] = useState(false);
+  const [databaseHelpOpen, setDatabaseHelpOpen] = useState(false);
+  const [searchTipOpen, setSearchTipOpen] = useState(false);
+  const [slowSearch, setSlowSearch] = useState(false);
 
   useEffect(() => {
     if (!open) return;
@@ -278,6 +284,9 @@ export function EcoinventLookupDialog({ open, initialQuery, context, onClose, on
     setAiPassword("");
     setAiPasswordError("");
     setAiAuthenticating(false);
+    setDatabaseHelpOpen(false);
+    setSearchTipOpen(false);
+    setSlowSearch(false);
     const controller = new AbortController();
     setFacetsLoading(true);
     void fetch("/api/ecoinvent/search", {
@@ -298,6 +307,15 @@ export function EcoinventLookupDialog({ open, initialQuery, context, onClose, on
       .finally(() => setFacetsLoading(false));
     return () => controller.abort();
   }, [initialQuery, open]);
+
+  useEffect(() => {
+    if (!loading) {
+      setSlowSearch(false);
+      return;
+    }
+    const timer = window.setTimeout(() => setSlowSearch(true), 3000);
+    return () => window.clearTimeout(timer);
+  }, [loading]);
 
   if (!open) return null;
 
@@ -517,15 +535,47 @@ export function EcoinventLookupDialog({ open, initialQuery, context, onClose, on
     <div className="fixed inset-0 z-[80] flex items-start justify-center overflow-y-auto bg-black/65 px-4 py-6">
       <div aria-labelledby="ecoinvent-lookup-title" aria-modal="true" className="ecoinvent-modal-shell flex max-h-[calc(100dvh-3rem)] w-full max-w-5xl flex-col overflow-hidden rounded-xl" role="dialog">
         <div className="ecoinvent-search-surface flex flex-wrap items-start justify-between gap-4 border-b border-mist/80 px-5 py-4">
-          <div>
+          <div className="min-w-0">
             <div className="text-sm font-semibold text-slate">ecoinvent 3.12 / cut-off</div>
             <h2 className="mt-1 text-2xl font-semibold text-ink" id="ecoinvent-lookup-title">Find an ecoinvent dataset</h2>
+            <button
+              className="mt-2 inline-flex items-center gap-2 text-left text-xs font-semibold text-helper transition hover:text-ink"
+              onClick={() => setDatabaseHelpOpen(true)}
+              type="button"
+            >
+              <span aria-hidden="true" className="grid h-6 w-6 shrink-0 place-items-center rounded-sm border border-helper/45 font-bold">?</span>
+              Connect an activity to an LCA database
+            </button>
           </div>
           <button className="rounded-md border border-mist px-3 py-1 text-sm text-slate transition hover:border-slate hover:text-ink" onClick={onClose} type="button">Close</button>
         </div>
 
         <div className="ecoinvent-search-surface border-b border-mist/80 px-5 py-4">
-          <div className="flex flex-col gap-3 md:flex-row">
+          <div className="mb-2 flex justify-end">
+            <button
+              aria-expanded={searchTipOpen}
+              className="inline-flex items-center gap-1.5 rounded-md border border-helper/40 px-2.5 py-1.5 text-xs font-semibold text-helper transition hover:border-helper hover:bg-helper-soft"
+              onClick={() => setSearchTipOpen((current) => !current)}
+              type="button"
+            >
+              <span aria-hidden="true" className="font-bold">?</span>
+              Tip
+            </button>
+          </div>
+          {searchTipOpen ? (
+            <aside className="mb-3 rounded-md border border-helper/35 bg-helper-soft p-4 text-sm leading-6 text-slate" role="note">
+              <div className="flex items-start justify-between gap-3">
+                <h3 className="font-semibold text-ink">How to choose a background dataset</h3>
+                <button aria-label="Close dataset search tip" className="grid h-6 w-6 shrink-0 place-items-center text-base text-slate transition hover:text-ink" onClick={() => setSearchTipOpen(false)} type="button">×</button>
+              </div>
+              <ol className="mt-2 list-decimal space-y-2 pl-5">
+                <li><strong className="text-ink">Search for the flow.</strong> Start with the most specific name available. If no suitable result appears, try common synonyms or the broader material family. For a component, first search for the complete component; if none is available, search for its main materials.</li>
+                <li><strong className="text-ink">Compare the results.</strong> Check which dataset best matches the material or component, production technology, geographical location, period of validity and unit.</li>
+                <li><strong className="text-ink">Select and document the dataset.</strong> Choose the closest match. If no exact dataset exists, use a suitable proxy and record why it was selected.</li>
+              </ol>
+            </aside>
+          ) : null}
+          <div className="flex flex-col gap-3 md:flex-row" data-tutorial="ecoinvent-search">
             <input
               className="min-h-12 min-w-0 flex-1 rounded-lg border border-mist bg-white px-4 py-3 text-sm text-ink outline-none transition focus:border-accent"
               onChange={(event) => {
@@ -554,6 +604,9 @@ export function EcoinventLookupDialog({ open, initialQuery, context, onClose, on
               {loading && view === "manual" ? "Searching…" : "Search"}
             </button>
           </div>
+          {slowSearch ? (
+            <p aria-live="polite" className="mt-2 text-xs leading-5 text-slate">It&apos;s taking a bit longer. No worries, normally it&apos;s faster.</p>
+          ) : null}
           {manualSearched ? (
             <button className="mt-2 inline-flex items-center gap-1.5 text-xs font-semibold text-accent transition hover:text-ink disabled:cursor-not-allowed disabled:opacity-50" disabled={loading || !query.trim()} onClick={() => void askAi()} type="button">
               <span aria-hidden="true">✦</span> {loading && view === "ai" ? "Refining with AI…" : "Improve this search with AI"}
@@ -588,7 +641,7 @@ export function EcoinventLookupDialog({ open, initialQuery, context, onClose, on
 
         {error ? <div className="mx-5 mt-4 rounded-lg border border-alert/20 bg-alert/5 px-4 py-3 text-sm text-alert">{error}</div> : null}
 
-        <div className="ecoinvent-results-surface min-h-0 flex-1 space-y-4 overflow-y-auto px-5 py-4">
+        <div className="ecoinvent-results-surface min-h-0 flex-1 space-y-4 overflow-y-auto px-5 py-4" data-tutorial={manualSearched ? "ecoinvent-results" : undefined}>
           {view === "manual" && manualFamilies.length ? (
             <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate">
               <div><span className="font-semibold text-ink">{manualFamilies.length}</span> grouped result{manualFamilies.length === 1 ? "" : "s"} shown from {manualTotalHits} ecoQuery activit{manualTotalHits === 1 ? "y" : "ies"}</div>
@@ -724,8 +777,7 @@ export function EcoinventLookupDialog({ open, initialQuery, context, onClose, on
       {aiPasswordPromptOpen ? (
         <div className="fixed inset-0 z-[95] grid place-items-center bg-black/70 px-4 py-8">
           <section aria-labelledby="ai-access-title" aria-modal="true" className="panel-surface w-full max-w-md rounded-xl border border-mist/80 p-6 sm:p-7" role="dialog">
-            <span className="inline-flex rounded-md bg-accent-soft px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-alert-text">AI access</span>
-            <h3 className="mt-4 text-xl font-semibold text-ink" id="ai-access-title">Unlock AI assistance</h3>
+            <h3 className="text-xl font-semibold text-ink" id="ai-access-title">Unlock AI assistance</h3>
             <p className="mt-2 text-sm leading-6 text-slate">
               Manual ecoQuery search remains available without a password. Enter the beta access password only to use the OpenAI-assisted search.
             </p>
@@ -747,6 +799,34 @@ export function EcoinventLookupDialog({ open, initialQuery, context, onClose, on
                 <button className="h-11 rounded-md bg-accent px-5 text-sm font-semibold text-white transition hover:bg-[#ad4141] disabled:cursor-wait disabled:opacity-60" disabled={aiAuthenticating} type="submit">{aiAuthenticating ? "Checking…" : "Unlock AI"}</button>
               </div>
             </form>
+          </section>
+        </div>
+      ) : null}
+
+      {databaseHelpOpen ? (
+        <div className="fixed inset-0 z-[100] grid place-items-center overflow-y-auto bg-black/75 px-4 py-6">
+          <section aria-labelledby="database-help-title" aria-modal="true" className="panel-surface my-auto w-full max-w-5xl overflow-hidden rounded-xl border border-mist/80" role="dialog">
+            <div className="flex items-start justify-between gap-4 border-b border-mist/70 px-5 py-4 sm:px-6">
+              <div>
+                <span className="inline-flex rounded-md bg-helper-soft px-2.5 py-1 text-[11px] font-semibold uppercase text-helper">LCA modelling</span>
+                <h3 className="mt-3 text-xl font-semibold text-ink sm:text-2xl" id="database-help-title">Connect an activity to an LCA database</h3>
+              </div>
+              <button aria-label="Close LCA database help" className="grid h-9 w-9 shrink-0 place-items-center rounded-md border border-mist text-xl text-slate transition hover:border-slate hover:text-ink" onClick={() => setDatabaseHelpOpen(false)} type="button">×</button>
+            </div>
+            <div className="max-h-[calc(100dvh-10rem)] overflow-y-auto px-5 py-5 sm:px-6 sm:py-6">
+              <div className="space-y-3 text-sm leading-6 text-slate sm:text-base sm:leading-7">
+                <p>Once the inputs and outputs of an activity have been identified and quantified, they should be connected to datasets of &quot;background&quot; activities from an LCA database, such as ecoinvent. Such a database contains datasets representing activities such as material production, electricity supply, transport and waste treatment. These datasets connect the user-defined activities to the &quot;upstream&quot; and &quot;downstream&quot; activities along the full value chain (or life cycle).</p>
+                <p>Through these connections, the model includes the full list of resource uses and pollutant emissions associated with 1 unit of the main activity under assessment (e.g., product, service or system).</p>
+              </div>
+              <figure className="mt-5 overflow-x-auto rounded-md bg-black p-3 sm:p-5">
+                <Image
+                  alt="LCA database activities for waste treatment, screw manufacturing, PLA manufacturing, and electricity production connected to a user-defined component production activity."
+                  className="mx-auto h-auto min-w-[40rem] sm:min-w-0"
+                  priority
+                  src={databaseConnectionImage}
+                />
+              </figure>
+            </div>
           </section>
         </div>
       ) : null}
