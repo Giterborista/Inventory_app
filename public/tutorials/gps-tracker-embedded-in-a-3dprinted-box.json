@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "exportedAt": "2026-07-20T09:13:23.703Z",
+  "exportedAt": "2026-07-20T10:43:07.484Z",
   "project": {
     "id": "project-6161bde8-16cd-4f5e-99b1-2b66caa19de6",
     "name": "GPS tracker embedded in a 3dprinted box",
@@ -10,7 +10,7 @@
         "activityType": "Production of",
         "referenceProductName": "Research GPS box",
         "objectKind": "molecule",
-        "name": "Production of esearch GPS box",
+        "name": "Production of research GPS box",
         "cas": "",
         "iupac": "",
         "smiles": "",
@@ -178,51 +178,6 @@
             "updatedAt": "2026-07-20T07:50:25.539Z"
           },
           {
-            "id": "row-668b3d39-2e22-4683-9335-dc78467d1866",
-            "section": "OUTPUT",
-            "order": 1,
-            "objectKind": "generic_object",
-            "name": "Research GPS box",
-            "synonyms": [],
-            "ro": "",
-            "reactionValue": "",
-            "cleaningValue": "",
-            "totalValue": "1",
-            "uncertaintyEnabled": false,
-            "minimumValue": "",
-            "maximumValue": "",
-            "amountSource": "measured",
-            "unit": "item",
-            "totalScaledValue": "1",
-            "scaledUnit": "item",
-            "description": "",
-            "reference": "",
-            "iupac": "",
-            "cas": "",
-            "smiles": "",
-            "ecoinventStatus": "missing",
-            "rawEcoinventStatus": "OK",
-            "ecoinventDatasetId": "",
-            "ecoinventDatasetUuid": "",
-            "ecoinventGeography": "",
-            "ecoinventName": "",
-            "ecoinventReferenceProduct": "",
-            "ecoinventUnit": "",
-            "notes": "",
-            "relevant": "",
-            "formula": "",
-            "pubchemMatch": null,
-            "linkedMoleculeId": null,
-            "evidenceIds": [],
-            "sourceWorkbook": "",
-            "sourceSheet": "",
-            "sourceRowNumber": null,
-            "linkConfidence": null,
-            "needsReview": false,
-            "createdAt": "2026-06-19T12:42:36.085Z",
-            "updatedAt": "2026-07-20T07:59:33.833Z"
-          },
-          {
             "id": "row-522c1eaa-316c-4106-90eb-3a8ed43600cf",
             "section": "INPUT",
             "order": 4,
@@ -266,6 +221,51 @@
             "needsReview": false,
             "createdAt": "2026-07-20T07:48:58.137Z",
             "updatedAt": "2026-07-20T07:48:58.137Z"
+          },
+          {
+            "id": "row-668b3d39-2e22-4683-9335-dc78467d1866",
+            "section": "OUTPUT",
+            "order": 1,
+            "objectKind": "generic_object",
+            "name": "Research GPS box",
+            "synonyms": [],
+            "ro": "",
+            "reactionValue": "",
+            "cleaningValue": "",
+            "totalValue": "1",
+            "uncertaintyEnabled": false,
+            "minimumValue": "",
+            "maximumValue": "",
+            "amountSource": "measured",
+            "unit": "item",
+            "totalScaledValue": "1",
+            "scaledUnit": "item",
+            "description": "",
+            "reference": "",
+            "iupac": "",
+            "cas": "",
+            "smiles": "",
+            "ecoinventStatus": "missing",
+            "rawEcoinventStatus": "OK",
+            "ecoinventDatasetId": "",
+            "ecoinventDatasetUuid": "",
+            "ecoinventGeography": "",
+            "ecoinventName": "",
+            "ecoinventReferenceProduct": "",
+            "ecoinventUnit": "",
+            "notes": "",
+            "relevant": "",
+            "formula": "",
+            "pubchemMatch": null,
+            "linkedMoleculeId": null,
+            "evidenceIds": [],
+            "sourceWorkbook": "",
+            "sourceSheet": "",
+            "sourceRowNumber": null,
+            "linkConfidence": null,
+            "needsReview": false,
+            "createdAt": "2026-06-19T12:42:36.085Z",
+            "updatedAt": "2026-07-20T07:59:33.833Z"
           },
           {
             "id": "row-0b9b56e1-174f-41f1-8269-e4a7efbd2ceb",
@@ -329,7 +329,7 @@
           "link-c5d7fdba-db01-43ae-94b7-71a7ff980df7"
         ],
         "createdAt": "2026-06-19T12:36:35.865Z",
-        "updatedAt": "2026-07-20T09:13:02.687Z"
+        "updatedAt": "2026-07-20T10:42:52.861Z"
       },
       {
         "id": "molecule-6fea3946-0616-4476-88b1-cbe7734bed89",
@@ -861,7 +861,7 @@
         "needsReview": false,
         "sortOrder": 1,
         "createdAt": "2026-06-22T09:06:04.553Z",
-        "updatedAt": "2026-07-20T09:13:23.703Z"
+        "updatedAt": "2026-07-20T10:43:07.484Z"
       },
       {
         "id": "link-c5d7fdba-db01-43ae-94b7-71a7ff980df7",
@@ -873,7 +873,7 @@
         "needsReview": false,
         "sortOrder": 2,
         "createdAt": "2026-06-22T09:19:45.965Z",
-        "updatedAt": "2026-07-20T09:13:23.703Z"
+        "updatedAt": "2026-07-20T10:43:07.484Z"
       },
       {
         "id": "link-9bb99219-ed5c-4c63-888f-2b51a30f3e43",
@@ -885,11 +885,11 @@
         "needsReview": false,
         "sortOrder": 1,
         "createdAt": "2026-06-22T17:08:50.708Z",
-        "updatedAt": "2026-07-20T09:13:23.703Z"
+        "updatedAt": "2026-07-20T10:43:07.484Z"
       }
     ],
     "importSessions": [],
     "createdAt": "2026-06-19T12:34:08.432Z",
-    "updatedAt": "2026-07-20T09:13:23.703Z"
+    "updatedAt": "2026-07-20T10:43:07.484Z"
   }
 }
