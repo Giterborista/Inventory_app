@@ -4,7 +4,6 @@ import Image from "next/image";
 import { useEffect, useState } from "react";
 
 import type { MoleculeDraft } from "@/features/workbench/types";
-import activityOverviewImage from "../../../../Pictures/Picture0.png";
 
 const emptyDraft: MoleculeDraft = {
   activityType: "Production of",
@@ -50,6 +49,12 @@ export function CreateMoleculeDialog({
   const [draft, setDraft] = useState<MoleculeDraft>(emptyDraft);
   const [tipOpen, setTipOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
+
+  useEffect(() => {
+    const image = new window.Image();
+    image.src = "/images/help/activity-overview.webp";
+    void image.decode().catch(() => undefined);
+  }, []);
 
   useEffect(() => {
     if (!open) {
@@ -284,9 +289,11 @@ export function CreateMoleculeDialog({
             <Image
               alt="Diagram of materials, water, energy, and infrastructure entering an activity. The activity produces co-products, emissions, other outputs, and one main output shown by the orange arrow."
               className="h-auto w-full"
-              priority
+              height={1058}
               sizes="(max-width: 768px) calc(100vw - 4rem), 42rem"
-              src={activityOverviewImage}
+              src="/images/help/activity-overview.webp"
+              unoptimized
+              width={1600}
             />
           </figure>
           <div className="mt-5 grid gap-4 text-sm leading-6 text-slate sm:grid-cols-2">

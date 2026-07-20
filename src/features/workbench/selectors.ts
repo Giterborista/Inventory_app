@@ -294,17 +294,15 @@ export function validateProject(project: ProjectRecord): ProjectValidationIssue[
   );
 
   const productSystemRoots = getProductSystemRoots(project);
-  const mainActivity = productSystemRoots[0];
-  const connectivityIssues: ProjectValidationIssue[] = mainActivity
-    ? productSystemRoots.slice(1).map((activity) => ({
+  const connectivityIssues: ProjectValidationIssue[] = productSystemRoots.length > 1
+    ? productSystemRoots.map((activity) => ({
         id: `${activity.id}:product-system:disconnected`,
         activityId: activity.id,
         severity: "error",
-        message: "Activity is disconnected from the main product system",
+        message: "Activity is disconnected from the overall product system",
         target: {
           tab: "inputs",
           field: "connection",
-          activityId: mainActivity.id,
         },
       }))
     : [];

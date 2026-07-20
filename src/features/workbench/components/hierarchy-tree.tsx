@@ -127,7 +127,9 @@ function TreeNode({
   const cycleDetected = path.has(molecule.id);
   const expanded = hasChildren && (expandedIds.has(molecule.id) || depth === 0);
   const selected = selectedMoleculeId === molecule.id;
-  const mainActivityId = getProductSystemRoots(project)[0]?.id;
+  const productSystemRoots = getProductSystemRoots(project);
+  const mainActivityId = productSystemRoots[0]?.id;
+  const hasDisconnectedRoots = productSystemRoots.length > 1;
 
   if (visibleIds && !visibleIds.has(molecule.id)) {
     return null;
@@ -137,7 +139,7 @@ function TreeNode({
     <div>
       <div
         aria-selected={selected}
-        data-tutorial={molecule.id === mainActivityId ? "main-activity" : undefined}
+        data-tutorial={!hasDisconnectedRoots && molecule.id === mainActivityId ? "main-activity" : undefined}
         className={`group relative flex min-h-[4.75rem] cursor-pointer items-center border-b border-mist/60 pr-3 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/40 ${selected ? "bg-accent/[0.055] before:absolute before:inset-y-2 before:left-0 before:w-1 before:rounded-r before:bg-accent" : "hover:bg-lab/70"}`}
         onClick={() => {
           onSelectMolecule(molecule.id);
@@ -182,7 +184,7 @@ function TreeNode({
         <div className="min-w-0 flex-1 py-3">
           <div className="truncate text-sm font-semibold text-ink">{activityLabel}</div>
           <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-slate">
-            <span>{depth === 0 ? (molecule.id === mainActivityId ? "Main activity" : "Disconnected activity") : viaRow?.totalValue ? `${viaRow.totalValue} ${viaRow.unit}` : "Child activity"}</span>
+            <span>{depth === 0 ? (hasDisconnectedRoots ? "Disconnected from overall system" : "Main activity") : viaRow?.totalValue ? `${viaRow.totalValue} ${viaRow.unit}` : "Child activity"}</span>
             <span aria-hidden="true">·</span>
             <span>{inputRows.length} input{inputRows.length === 1 ? "" : "s"} · {outputCount} output{outputCount === 1 ? "" : "s"}</span>
           </div>

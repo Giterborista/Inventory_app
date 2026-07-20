@@ -5,8 +5,6 @@ import { type FormEvent, useEffect, useState } from "react";
 
 import type { EcoinventDatasetMatch } from "@/features/workbench/types";
 
-import databaseConnectionImage from "../../../../Pictures/Picture3.png";
-
 type EcoinventLookupDialogProps = {
   open: boolean;
   initialQuery: string;
@@ -257,6 +255,12 @@ export function EcoinventLookupDialog({ open, initialQuery, context, onClose, on
   const [databaseHelpOpen, setDatabaseHelpOpen] = useState(false);
   const [searchTipOpen, setSearchTipOpen] = useState(false);
   const [slowSearch, setSlowSearch] = useState(false);
+
+  useEffect(() => {
+    const image = new window.Image();
+    image.src = "/images/help/database-connection.webp";
+    void image.decode().catch(() => undefined);
+  }, []);
 
   useEffect(() => {
     if (!open) return;
@@ -822,8 +826,10 @@ export function EcoinventLookupDialog({ open, initialQuery, context, onClose, on
                 <Image
                   alt="LCA database activities for waste treatment, screw manufacturing, PLA manufacturing, and electricity production connected to a user-defined component production activity."
                   className="mx-auto h-auto min-w-[40rem] sm:min-w-0"
-                  priority
-                  src={databaseConnectionImage}
+                  height={1129}
+                  src="/images/help/database-connection.webp"
+                  unoptimized
+                  width={1920}
                 />
               </figure>
             </div>

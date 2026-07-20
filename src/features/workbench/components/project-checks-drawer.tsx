@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
 import type { ProjectIssueSeverity, ProjectValidationIssue } from "@/features/workbench/selectors";
@@ -27,7 +27,7 @@ function activityLabel(project: ProjectRecord, activityId: string) {
 }
 
 function actionLabel(issue: ProjectValidationIssue) {
-  if (issue.target.field === "connection") return "Connect activity";
+  if (issue.target.field === "connection") return "Fix";
   if (issue.target.tab === "scope") return "Open scope & sources";
   if (issue.target.flowId) return issue.target.tab === "outputs" ? "Open output" : "Open input";
   return issue.target.tab === "outputs" ? "Open outputs" : "Open inputs";
@@ -45,6 +45,7 @@ export function ProjectChecksDrawer({
   onOpenIssue,
 }: ProjectChecksDrawerProps) {
   const closeButtonRef = useRef<HTMLButtonElement>(null);
+  const [connectionGuideIssue, setConnectionGuideIssue] = useState<ProjectValidationIssue | null>(null);
   const affectedActivityCount = new Set(issues.map((issue) => issue.activityId)).size;
   const filteredIssues = useMemo(
     () => issues.filter((issue) =>
@@ -61,6 +62,7 @@ export function ProjectChecksDrawer({
 
   useEffect(() => {
     if (!open) return;
+    setConnectionGuideIssue(null);
     closeButtonRef.current?.focus();
     const closeOnEscape = (event: KeyboardEvent) => {
       if (event.key === "Escape") onClose();
@@ -71,9 +73,14 @@ export function ProjectChecksDrawer({
 
   if (!open || typeof document === "undefined") return null;
 
+  const closeDrawer = () => {
+    setConnectionGuideIssue(null);
+    onClose();
+  };
+
   return createPortal(
     <div className="fixed inset-0 z-[80]" role="presentation">
-      <button aria-label="Close error center" className="absolute inset-0 cursor-default bg-ink/20" onClick={onClose} type="button" />
+      <button aria-label="Close error center" className="absolute inset-0 cursor-default bg-ink/20" onClick={closeDrawer} type="button" />
       <aside
         aria-labelledby="error-center-title"
         aria-modal="true"
@@ -89,10 +96,34 @@ export function ProjectChecksDrawer({
                 : "All current activity checks have passed."}
             </p>
           </div>
-          <button ref={closeButtonRef} aria-label="Close error center" className="grid h-9 w-9 place-items-center rounded-md border border-mist/70 text-lg text-slate hover:bg-lab hover:text-ink" onClick={onClose} type="button">×</button>
+          <button ref={closeButtonRef} aria-label="Close error center" className="grid h-9 w-9 place-items-center rounded-md border border-mist/70 text-lg text-slate hover:bg-lab hover:text-ink" onClick={closeDrawer} type="button">×</button>
         </header>
 
-        {issues.length === 0 ? (
+        {connectionGuideIssue ? (
+          <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5">
+            <button className="text-xs font-semibold text-slate transition hover:text-ink" onClick={() => setConnectionGuideIssue(null)} type="button">← Back to issues</button>
+            <h3 className="mt-5 text-lg font-semibold text-ink">How to connect activities</h3>
+            <p className="mt-2 text-sm leading-6 text-slate">
+              Activities become connected when the main output of one activity is used as an input by another activity.
+            </p>
+            <ol className="mt-5 space-y-4 text-sm leading-6 text-slate">
+              <li className="flex gap-3"><span className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-lab text-xs font-semibold text-ink">1</span><span>Open the activity that uses the other activity&apos;s main output.</span></li>
+              <li className="flex gap-3"><span className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-lab text-xs font-semibold text-ink">2</span><span>Select <strong className="text-ink">Add input</strong>.</span></li>
+              <li className="flex gap-3"><span className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-lab text-xs font-semibold text-ink">3</span><span>In Data source, choose the second option: <strong className="text-ink">Link or import an activity</strong>.</span></li>
+              <li className="flex gap-3"><span className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-lab text-xs font-semibold text-ink">4</span><span>Search for the supplying activity, select it, and save the input.</span></li>
+            </ol>
+            <div className="mt-5 border-l-2 border-accent bg-accent-soft/50 px-4 py-3 text-xs leading-5 text-slate">
+              No direction is assumed. Continue only if this activity uses another activity&apos;s main output. Otherwise, return to the errors and select Fix for the other disconnected activity.
+            </div>
+            <button
+              className="mt-6 rounded-sm bg-accent px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#ad4141]"
+              onClick={() => onOpenIssue(connectionGuideIssue)}
+              type="button"
+            >
+              Open this activity&apos;s inputs
+            </button>
+          </div>
+        ) : issues.length === 0 ? (
           <div className="px-5 py-6">
             <p className="text-sm font-medium text-ink">All current activity checks have passed.</p>
             <p className="mt-2 text-sm text-slate">Checks update automatically as the project changes.</p>
@@ -135,7 +166,7 @@ export function ProjectChecksDrawer({
                           <span aria-label={issue.severity} className={`mt-1 h-2 w-2 shrink-0 rounded-full ${issue.severity === "error" ? "bg-alert" : "bg-scale-2"}`} role="img" />
                           <div className="min-w-0 flex-1">
                             <p className="text-sm leading-5 text-ink">{issue.message}</p>
-                            <button className="mt-1.5 text-xs font-semibold text-accent hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40" onClick={() => onOpenIssue(issue)} type="button">
+                            <button className="mt-1.5 text-xs font-semibold text-accent hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40" onClick={() => issue.target.field === "connection" ? setConnectionGuideIssue(issue) : onOpenIssue(issue)} type="button">
                               {actionLabel(issue)}
                             </button>
                           </div>

@@ -10,7 +10,6 @@ import { ThemeToggle } from "@/features/workbench/components/theme-toggle";
 import { getHierarchyVisibleIds } from "@/features/workbench/selectors";
 import type { ProjectSearchResult, ProjectValidationIssue } from "@/features/workbench/selectors";
 import type { MoleculeRecord, ProjectRecord } from "@/features/workbench/types";
-import valueChainImage from "../../../../Pictures/Picture1.png";
 
 type DashboardProps = {
   project: ProjectRecord;
@@ -259,6 +258,11 @@ export function Dashboard({
       .filter((issue) => issue.target.field === "connection")
       .map((issue) => issue.activityId),
   );
+  useEffect(() => {
+    const image = new window.Image();
+    image.src = "/images/help/value-chain.webp";
+    void image.decode().catch(() => undefined);
+  }, []);
   useEffect(() => {
     if (selectedStructureMoleculeId && !project.molecules.some((molecule) => molecule.id === selectedStructureMoleculeId)) {
       setSelectedStructureMoleculeId("");
@@ -549,8 +553,11 @@ export function Dashboard({
                 <Image
                   alt="Three activities connected in sequence. Each receives separate inputs and generates outputs, while its main output becomes an input to the following activity."
                   className="h-auto w-full min-w-[44rem] sm:min-w-0"
+                  height={576}
                   sizes="(max-width: 768px) 44rem, 64rem"
-                  src={valueChainImage}
+                  src="/images/help/value-chain.webp"
+                  unoptimized
+                  width={1920}
                 />
               </div>
               <figcaption className="border-t border-white/10 px-2 pb-1 pt-3 text-xs leading-5 text-white/75">

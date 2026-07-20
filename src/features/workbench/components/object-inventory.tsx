@@ -167,7 +167,7 @@ export function ObjectInventory({
       kind: projectIssueFocus.target.flowId ? "row" : "add",
       section,
       rowId: projectIssueFocus.target.flowId,
-      panel: projectIssueFocus.target.field === "ecoinventDatasetId" ? "dataset" : "details",
+      panel: projectIssueFocus.target.field === "ecoinventDatasetId" || projectIssueFocus.target.field === "connection" ? "dataset" : "details",
       field: projectIssueFocus.target.field,
     });
     onProjectIssueFocusHandled?.();
