@@ -275,13 +275,13 @@ export function Dashboard({
   useEffect(() => {
     const handleTutorialStep = (event: Event) => {
       const tutorialStep = (event as CustomEvent<{ step?: number }>).detail?.step;
-      if (tutorialStep === 5) setActiveView("hierarchy");
+      if (tutorialStep === 6) setActiveView("hierarchy");
     };
     window.addEventListener("lci:tutorial-step", handleTutorialStep);
     return () => window.removeEventListener("lci:tutorial-step", handleTutorialStep);
   }, []);
   return (
-    <main className="min-h-screen bg-transparent px-3 py-3 text-ink sm:px-4 sm:py-4">
+    <main className="min-h-screen bg-transparent px-3 py-3 text-ink sm:px-4 sm:py-4" data-tutorial="dashboard-page">
       <div className="mx-auto grid max-w-[112rem] gap-4 md:grid-cols-[17rem_minmax(0,1fr)]">
         <aside className="theme-sidebar h-fit overflow-hidden rounded-xl border border-mist/40 md:sticky md:top-4 md:h-[calc(100vh-2rem)] md:self-start">
           <div className="border-b border-mist/70 p-4" data-tutorial="sidebar-brand">

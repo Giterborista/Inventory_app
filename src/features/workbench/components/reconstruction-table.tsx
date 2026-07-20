@@ -577,8 +577,8 @@ export function ReconstructionTable({
     const handleTutorialStep = (event: Event) => {
       const step = (event as CustomEvent<{ step: number }>).detail?.step;
       if (typeof step !== "number") return;
-      if (step <= 8) closeEditor();
-      if (step === 9) openEditor("INPUT");
+      if (step <= 9) closeEditor();
+      if (step === 10) openEditor("INPUT");
     };
     window.addEventListener("lci:tutorial-step", handleTutorialStep);
     return () => window.removeEventListener("lci:tutorial-step", handleTutorialStep);

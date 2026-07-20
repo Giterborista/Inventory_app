@@ -334,10 +334,10 @@ export function HierarchyTree({
               >
                 + Add first activity
               </button>
-              <div className="mt-6 max-w-lg border-l-2 border-accent bg-accent-soft/60 px-4 py-3">
-                <div className="text-sm font-semibold text-ink">First time using this tool?</div>
-                <p className="mt-1 text-xs leading-5 text-slate">Open an example project and follow a guided tutorial.</p>
-                <button className="mt-3 rounded-sm border border-accent/40 bg-white px-3 py-2 text-sm font-semibold text-accent transition hover:bg-accent hover:text-white" onClick={onStartTutorial} type="button">Open example project and tutorial</button>
+              <div className="mt-10 max-w-2xl">
+                <div className="text-xl font-semibold text-ink">First time using this tool?</div>
+                <p className="mt-2 text-sm leading-6 text-slate">Open an example project and follow a guided tutorial.</p>
+                <button className="mt-5 rounded-sm bg-accent px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#ad4141]" onClick={onStartTutorial} type="button">Open example project and tutorial</button>
               </div>
             </div>
           </div>

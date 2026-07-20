@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "exportedAt": "2026-07-20T08:00:59.047Z",
+  "exportedAt": "2026-07-20T09:13:23.703Z",
   "project": {
     "id": "project-6161bde8-16cd-4f5e-99b1-2b66caa19de6",
     "name": "GPS tracker embedded in a 3dprinted box",
@@ -10,7 +10,7 @@
         "activityType": "Production of",
         "referenceProductName": "Research GPS box",
         "objectKind": "molecule",
-        "name": "Research GPS box",
+        "name": "Production of esearch GPS box",
         "cas": "",
         "iupac": "",
         "smiles": "",
@@ -329,14 +329,14 @@
           "link-c5d7fdba-db01-43ae-94b7-71a7ff980df7"
         ],
         "createdAt": "2026-06-19T12:36:35.865Z",
-        "updatedAt": "2026-07-20T07:59:33.833Z"
+        "updatedAt": "2026-07-20T09:13:02.687Z"
       },
       {
         "id": "molecule-6fea3946-0616-4476-88b1-cbe7734bed89",
         "activityType": "Production of",
         "referenceProductName": "Screws and nuts (galvanised)",
         "objectKind": "molecule",
-        "name": "Screws and nuts (galvanised)",
+        "name": "Production of screws and nuts (galvanised)",
         "cas": "",
         "iupac": "",
         "smiles": "",
@@ -565,14 +565,14 @@
         ],
         "childLinkIds": [],
         "createdAt": "2026-06-22T09:06:04.553Z",
-        "updatedAt": "2026-07-20T07:59:45.441Z"
+        "updatedAt": "2026-07-20T09:13:13.927Z"
       },
       {
         "id": "molecule-148300f8-d0c3-4607-9712-14a5cb38b0af",
         "activityType": "Production of",
         "referenceProductName": "GPS tracker",
         "objectKind": "molecule",
-        "name": "GPS tracker",
+        "name": "Production of GPS tracker",
         "cas": "",
         "iupac": "",
         "smiles": "",
@@ -847,7 +847,7 @@
           "link-9bb99219-ed5c-4c63-888f-2b51a30f3e43"
         ],
         "createdAt": "2026-06-22T09:19:45.965Z",
-        "updatedAt": "2026-07-20T07:59:51.699Z"
+        "updatedAt": "2026-07-20T09:13:17.904Z"
       }
     ],
     "links": [
@@ -861,7 +861,7 @@
         "needsReview": false,
         "sortOrder": 1,
         "createdAt": "2026-06-22T09:06:04.553Z",
-        "updatedAt": "2026-07-20T08:00:59.046Z"
+        "updatedAt": "2026-07-20T09:13:23.703Z"
       },
       {
         "id": "link-c5d7fdba-db01-43ae-94b7-71a7ff980df7",
@@ -873,7 +873,7 @@
         "needsReview": false,
         "sortOrder": 2,
         "createdAt": "2026-06-22T09:19:45.965Z",
-        "updatedAt": "2026-07-20T08:00:59.046Z"
+        "updatedAt": "2026-07-20T09:13:23.703Z"
       },
       {
         "id": "link-9bb99219-ed5c-4c63-888f-2b51a30f3e43",
@@ -885,11 +885,11 @@
         "needsReview": false,
         "sortOrder": 1,
         "createdAt": "2026-06-22T17:08:50.708Z",
-        "updatedAt": "2026-07-20T08:00:59.046Z"
+        "updatedAt": "2026-07-20T09:13:23.703Z"
       }
     ],
     "importSessions": [],
     "createdAt": "2026-06-19T12:34:08.432Z",
-    "updatedAt": "2026-07-20T08:00:59.047Z"
+    "updatedAt": "2026-07-20T09:13:23.703Z"
   }
 }

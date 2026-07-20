@@ -181,7 +181,7 @@ export function ObjectInventory({
   }, [onSearchFocusRequestHandled, searchFocusRequest]);
 
   return (
-    <main className="min-h-screen bg-transparent px-3 py-3 text-ink sm:px-4 sm:py-4">
+    <main className="min-h-screen bg-transparent px-3 py-3 text-ink sm:px-4 sm:py-4" data-tutorial="activity-page">
       <div className="mx-auto grid max-w-[112rem] gap-3 md:grid-cols-[17rem_minmax(0,1fr)]">
         <div className="md:sticky md:top-4 md:h-[calc(100vh-2rem)] md:self-start" data-tutorial="activity-sidebar">
           <WorkspaceNavigator

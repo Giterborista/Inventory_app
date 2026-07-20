@@ -184,7 +184,7 @@ export function WorkbenchApp() {
     setTutorialStep(nextStep);
     setState((current) => {
       const mainActivity = current.project.molecules.find((molecule) => molecule.topLevel) ?? current.project.molecules[0];
-      if (nextStep <= 5) return selectMolecule(current, null);
+      if (nextStep <= 6) return selectMolecule(current, null);
       if (mainActivity) return selectMolecule(current, mainActivity.id);
       return current;
     });
@@ -211,7 +211,7 @@ export function WorkbenchApp() {
     applyStateChange((current) => selectMolecule(ensureLinkedObjectReferenceOutputs(current), moleculeId), {
       markDirty: false,
     });
-    if (tutorialStep === 5) navigateTutorial(6);
+    if (tutorialStep === 6) navigateTutorial(7);
   };
 
   const openProjectSearchResult = (result: ProjectSearchResult) => {

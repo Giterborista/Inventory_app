@@ -13,18 +13,21 @@ type TutorialStep = {
 };
 
 const steps: TutorialStep[] = [
+  { title: "Project overview", body: "This is the complete project workspace. The left sidebar contains project actions, while the main area shows the activities and their connections.", target: '[data-tutorial="dashboard-page"]' },
   { title: "Application controls", body: "This area identifies the Inventory Builder and lets you switch the interface theme.", target: '[data-tutorial="sidebar-brand"]' },
   { title: "Project actions", body: "Download, open, report, and new-project commands are kept together in the left sidebar.", target: '[data-tutorial="sidebar-actions"]' },
   { title: "Automatic saving", body: "This status confirms when the current project is stored automatically in this browser.", target: '[data-tutorial="sidebar-save-status"]' },
   { title: "Connected activity system", body: "The main workspace shows how foreground activities form one product system. Inputs from linked activities connect the stages of the value chain.", target: '[data-tutorial="project-workspace"]' },
   { title: "Tree and graph views", body: "Switch between Tree and Graph to inspect the same activity system from two perspectives.", target: '[data-tutorial="structure-view-controls"]', interactive: true },
   { title: "Open the main activity", body: "Select Production of Research GPS box to inspect the activity at the centre of this example.", target: '[data-tutorial="main-activity"]', interactive: true, requiresAction: true },
-  { title: "Activity inventory", body: "This workspace contains the activity inputs, outputs, and its scope and source information.", target: '[data-tutorial="activity-workspace"]' },
+  { title: "Activity page", body: "This page contains the selected activity's inputs, outputs, scope, sources, and project navigation. Select Next when you are ready to inspect its controls.", target: '[data-tutorial="activity-page"]' },
   { title: "Project structure", body: "The sidebar keeps the full project structure available while you work inside one activity.", target: '[data-tutorial="activity-sidebar"]' },
-  { title: "Add an input", body: "Select Add input to describe a material, component, energy flow, service, or other resource used by this activity.", target: '[data-tutorial="add-input"]', interactive: true, requiresAction: true, advanceWhenVisible: '[data-tutorial="row-editor-details"]' },
+  { title: "Add an input", body: "Select Add input to describe a material, component, energy flow, service, or other resource used by this activity.", target: '[data-tutorial="add-input"]', interactive: true, requiresAction: true, advanceWhenVisible: '[data-tutorial="row-editor-dialog"]' },
+  { title: "Input page", body: "The input editor is organised into Details, Data source, and Documentation. Review the complete form, then select Next to enter the example.", target: '[data-tutorial="row-editor-dialog"]' },
   { title: "Describe the input", body: "Add Polycarbonate for handlers, enter 0.15 as the amount, choose kg, then select Next: Data source.", target: '[data-tutorial="row-editor-dialog"]', interactive: true, requiresAction: true, advanceWhenVisible: '[data-tutorial="row-editor-dataset"]' },
   { title: "Choose a data source", body: "Use ecoinvent for a background dataset, link or import a foreground activity, or choose No suitable dataset to model a new activity.", target: '[data-tutorial="row-editor-dataset"]' },
-  { title: "Search ecoinvent", body: "Select Link an ecoinvent dataset to search the background database.", target: '[data-tutorial="ecoinvent-option"]', interactive: true, requiresAction: true, advanceWhenVisible: '[data-tutorial="ecoinvent-search"]' },
+  { title: "Search ecoinvent", body: "Select Link an ecoinvent dataset to search the background database.", target: '[data-tutorial="ecoinvent-option"]', interactive: true, requiresAction: true, advanceWhenVisible: '[data-tutorial="ecoinvent-dialog"]' },
+  { title: "ecoinvent search page", body: "This page searches background datasets and lets you compare activity type, sector, technology, unit, and geography. Select Next to begin the search.", target: '[data-tutorial="ecoinvent-dialog"]' },
   { title: "Search for the main material", body: "Search for polycarbonate rather than the complete component name, then run the search.", target: '[data-tutorial="ecoinvent-search"]', interactive: true, requiresAction: true, advanceWhenVisible: '[data-tutorial="ecoinvent-results"]' },
   { title: "Choose the dataset and geography", body: "Open the first suitable result, choose its geography, and select the European dataset when available.", target: '[data-tutorial="ecoinvent-results"]', interactive: true, requiresAction: true, advanceWhenVisible: '[data-tutorial="linked-dataset"]' },
   { title: "Continue to documentation", body: "The dataset is linked. Select Next: Documentation.", target: '[data-tutorial="row-editor-next-documentation"]', interactive: true, requiresAction: true, advanceWhenVisible: '[data-tutorial="row-editor-notes"]' },
@@ -46,7 +49,7 @@ export function GuidedTutorial({ step, onStepChange, onSkip, onKeepExample, onSt
   const targetWasVisible = useRef(false);
   const advanceTargetWasVisible = useRef(false);
   const lastStep = step === steps.length - 1;
-  const previousStep = step === 14 ? 12 : step - 1;
+  const previousStep = step === 17 ? 15 : step - 1;
 
   useEffect(() => {
     targetWasVisible.current = false;
@@ -90,7 +93,11 @@ export function GuidedTutorial({ step, onStepChange, onSkip, onKeepExample, onSt
     if (!current.target) return undefined;
     const targetSelector = current.target;
     const timer = window.setTimeout(() => {
-      document.querySelector<HTMLElement>(targetSelector)?.scrollIntoView({ behavior: "smooth", block: "center", inline: "center" });
+      const target = document.querySelector<HTMLElement>(targetSelector);
+      const rect = target?.getBoundingClientRect();
+      if (target && rect && rect.height < window.innerHeight * 0.9) {
+        target.scrollIntoView({ behavior: "smooth", block: "center", inline: "center" });
+      }
     }, 50);
     return () => window.clearTimeout(timer);
   }, [current.target, step]);

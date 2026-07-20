@@ -361,23 +361,23 @@ export function RowEditorDialog({
     const handleTutorialStep = (event: Event) => {
       const step = (event as CustomEvent<{ step: number }>).detail?.step;
       if (typeof step !== "number") return;
-      if (step <= 8) {
+      if (step <= 9) {
         onClose();
         return;
       }
-      if (step === 9) {
+      if (step === 10 || step === 11) {
         setEcoinventLookupOpen(false);
         setActivePanel("details");
-      } else if (step === 10 || step === 11) {
+      } else if (step === 12 || step === 13) {
         setEcoinventLookupOpen(false);
         setActivePanel("dataset");
-      } else if (step === 12) {
+      } else if (step === 14 || step === 15) {
         setActivePanel("dataset");
         setEcoinventLookupOpen(true);
-      } else if (step === 14) {
+      } else if (step === 17) {
         setEcoinventLookupOpen(false);
         setActivePanel("dataset");
-      } else if (step === 15) {
+      } else if (step === 18) {
         setEcoinventLookupOpen(false);
         setActivePanel("notes");
       }

@@ -533,7 +533,7 @@ export function EcoinventLookupDialog({ open, initialQuery, context, onClose, on
 
   return (
     <div className="fixed inset-0 z-[80] flex items-start justify-center overflow-y-auto bg-black/65 px-4 py-6">
-      <div aria-labelledby="ecoinvent-lookup-title" aria-modal="true" className="ecoinvent-modal-shell flex max-h-[calc(100dvh-3rem)] w-full max-w-5xl flex-col overflow-hidden rounded-xl" role="dialog">
+      <div aria-labelledby="ecoinvent-lookup-title" aria-modal="true" className="ecoinvent-modal-shell flex max-h-[calc(100dvh-3rem)] w-full max-w-5xl flex-col overflow-hidden rounded-xl" data-tutorial="ecoinvent-dialog" role="dialog">
         <div className="ecoinvent-search-surface flex flex-wrap items-start justify-between gap-4 border-b border-mist/80 px-5 py-4">
           <div className="min-w-0">
             <div className="text-sm font-semibold text-slate">ecoinvent 3.12 / cut-off</div>
