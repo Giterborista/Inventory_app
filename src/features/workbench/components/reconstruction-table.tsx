@@ -501,7 +501,6 @@ export function ReconstructionTable({
   });
   const [helpOpen, setHelpOpen] = useState(false);
   const [scaleOpen, setScaleOpen] = useState(false);
-  const [scaledColumnVisible, setScaledColumnVisible] = useState(false);
 
   const inputRows = useMemo(
     () => molecule.rows.filter((row) => row.section === "INPUT").sort((a, b) => a.order - b.order),
@@ -515,6 +514,11 @@ export function ReconstructionTable({
   const referenceAmount = parseNumeric(molecule.scaleReferenceAmount);
   const targetAmount = parseNumeric(molecule.scaleTargetAmount);
   const scaleValid = Boolean(referenceAmount && referenceAmount > 0 && targetAmount && targetAmount > 0 && molecule.scaleUnit.trim());
+  const scaledColumnVisible = Boolean(
+    scaleValid &&
+    referenceAmount !== targetAmount &&
+    molecule.rows.some((row) => row.totalScaledValue.trim().length > 0),
+  );
 
   function openEditor(
     section: ReconstructionSection,
@@ -646,7 +650,7 @@ export function ReconstructionTable({
               <label className="block w-28"><span className="text-xs text-slate">Recorded</span><input aria-invalid={referenceAmount === null || referenceAmount <= 0} className="mt-1 h-9 w-full rounded-sm border border-mist bg-white px-3 text-sm text-ink outline-none focus:border-slate" inputMode="decimal" onChange={(event) => onUpdateScaleField("scaleReferenceAmount", event.target.value)} value={molecule.scaleReferenceAmount} /></label>
               <label className="block w-28"><span className="text-xs text-slate">Target</span><input aria-invalid={targetAmount === null || targetAmount <= 0} className="mt-1 h-9 w-full rounded-sm border border-mist bg-white px-3 text-sm text-ink outline-none focus:border-slate" inputMode="decimal" onChange={(event) => onUpdateScaleField("scaleTargetAmount", event.target.value)} value={molecule.scaleTargetAmount} /></label>
               <label className="block w-24"><span className="text-xs text-slate">Unit</span><input className="mt-1 h-9 w-full rounded-sm border border-mist bg-white px-3 text-sm text-ink outline-none focus:border-slate" onChange={(event) => onUpdateScaleField("scaleUnit", event.target.value)} value={molecule.scaleUnit} /></label>
-              <button className="h-9 rounded-sm border border-mist px-3 text-xs font-semibold text-ink transition hover:bg-lab disabled:cursor-not-allowed disabled:opacity-40" disabled={!scaleValid} onClick={() => { onRescale(); setScaledColumnVisible(true); }} type="button">Recalculate</button>
+              <button className="h-9 rounded-sm border border-mist px-3 text-xs font-semibold text-ink transition hover:bg-lab disabled:cursor-not-allowed disabled:opacity-40" disabled={!scaleValid} onClick={onRescale} type="button">Recalculate</button>
               {!scaleValid ? <span className="pb-2 text-xs text-alert">Enter positive amounts and a unit.</span> : null}
             </div>
           ) : null}

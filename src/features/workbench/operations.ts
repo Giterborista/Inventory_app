@@ -172,6 +172,36 @@ function getScaledQuantity(
   return numeric === null ? "" : formatScaledValue(numeric * factor);
 }
 
+function rescaleRows(molecule: MoleculeRecord) {
+  const referenceAmount = parseNumericValue(molecule.scaleReferenceAmount);
+  const targetAmount = parseNumericValue(molecule.scaleTargetAmount);
+
+  if (
+    referenceAmount === null ||
+    referenceAmount <= 0 ||
+    targetAmount === null ||
+    targetAmount <= 0 ||
+    !molecule.scaleUnit.trim()
+  ) {
+    return molecule.rows;
+  }
+
+  const factor = targetAmount / referenceAmount;
+  return molecule.rows.map((row) => {
+    const numeric = parseNumericValue(row.totalValue);
+    if (numeric === null) {
+      return row;
+    }
+
+    return {
+      ...row,
+      totalScaledValue: formatScaledValue(numeric * factor),
+      scaledUnit: row.unit || molecule.scaleUnit,
+      updatedAt: nowIso(),
+    };
+  });
+}
+
 function findRowIndexByName(rows: ReconstructionRow[], name: string) {
   const normalizedTarget = normalizeText(name);
   return rows.findIndex((row) => normalizeText(row.name) === normalizedTarget);
@@ -1109,10 +1139,14 @@ export function updateMoleculeField(
 
   return updateOneMolecule(state, moleculeId, (molecule) => {
     if (field !== "referenceProductName") {
-      return {
+      const updatedMolecule = {
         ...molecule,
         [field]: normalizedValue,
       };
+
+      return field === "scaleReferenceAmount" || field === "scaleTargetAmount" || field === "scaleUnit"
+        ? { ...updatedMolecule, rows: rescaleRows(updatedMolecule) }
+        : updatedMolecule;
     }
 
     const nextName = String(normalizedValue);
@@ -1674,24 +1708,10 @@ export function updateReconstructionRow(
 }
 
 export function rescaleMoleculeRows(state: WorkbenchState, moleculeId: string): WorkbenchState {
-  return updateOneMolecule(state, moleculeId, (molecule) => {
-    const referenceAmount = parseNumericValue(molecule.scaleReferenceAmount) ?? 1;
-    const targetAmount = parseNumericValue(molecule.scaleTargetAmount) ?? 1;
-    const factor = referenceAmount === 0 ? 1 : targetAmount / referenceAmount;
-
-    return {
-      ...molecule,
-      rows: molecule.rows.map((row) => {
-        const numeric = parseNumericValue(row.totalValue);
-        return {
-          ...row,
-          totalScaledValue: numeric === null ? row.totalScaledValue : formatScaledValue(numeric * factor),
-          scaledUnit: row.scaledUnit || row.unit || molecule.scaleUnit,
-          updatedAt: nowIso(),
-        };
-      }),
-    };
-  });
+  return updateOneMolecule(state, moleculeId, (molecule) => ({
+    ...molecule,
+    rows: rescaleRows(molecule),
+  }));
 }
 
 export function applyPasDefaults(
