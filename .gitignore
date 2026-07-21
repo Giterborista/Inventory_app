@@ -29,6 +29,7 @@ __pycache__/
 tmp-debug-keys.ts
 .playwright-mcp/
 Proxy_JSON_Troubleshooting/
+Simapro_importer/
 # Local openLCA database, exports, and generated packages.
 OpenLCA/
 outputs/

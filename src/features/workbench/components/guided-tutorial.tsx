@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { type CSSProperties, useEffect, useMemo, useRef, useState } from "react";
 
 type TutorialStep = {
   title: string;
@@ -125,6 +125,11 @@ export function GuidedTutorial({ step, onStepChange, onSkip, onKeepExample, onSt
         ? { left: spotlight.left + Math.max(0, spotlight.width / 2 - 18), top: Math.max(8, spotlight.top - 46) }
         : { left: spotlight.left + Math.max(0, spotlight.width / 2 - 18), top: Math.min(window.innerHeight - 44, spotlight.bottom + 8) }
     : undefined;
+  const actionCursorStyle = spotlight ? {
+    ...arrowStyle,
+    "--tutorial-cursor-x": arrowPlacement === "left" ? "4px" : "0px",
+    "--tutorial-cursor-y": arrowPlacement === "top" ? "4px" : arrowPlacement === "bottom" ? "-4px" : "0px",
+  } as CSSProperties : undefined;
 
   return (
     <div aria-live="polite" className="fixed inset-0 z-[120] pointer-events-none">
@@ -136,7 +141,16 @@ export function GuidedTutorial({ step, onStepChange, onSkip, onKeepExample, onSt
           <div className="pointer-events-auto fixed right-0 bg-ink/80 backdrop-blur-[1px]" style={{ top: spotlight.top, left: spotlight.right, height: spotlight.height }} />
           <div className="fixed rounded-md border-2 border-accent shadow-[0_0_0_3px_rgba(196,72,72,0.2)]" style={{ left: spotlight.left, top: spotlight.top, width: spotlight.width, height: spotlight.height }} />
           {!current.interactive ? <div className="pointer-events-auto fixed" style={{ left: spotlight.left, top: spotlight.top, width: spotlight.width, height: spotlight.height }} /> : null}
-          <div className="fixed grid h-9 w-9 place-items-center rounded-full bg-accent text-xl font-bold text-white shadow-lg" style={arrowStyle} aria-hidden="true">{arrowPlacement === "left" ? "→" : arrowPlacement === "top" ? "↓" : "↑"}</div>
+          {current.requiresAction ? (
+            <div className="tutorial-action-cursor fixed grid h-10 w-10 place-items-center rounded-full bg-accent text-white shadow-lg" style={actionCursorStyle} aria-hidden="true">
+              <svg fill="none" height="23" viewBox="0 0 24 24" width="23">
+                <path d="M5.4 3.8 18.1 13l-6.15 1.02-3.1 5.4L5.4 3.8Z" fill="currentColor" stroke="currentColor" strokeLinejoin="round" strokeWidth="1.5" />
+                <path d="m12.1 14.1 3.8 5.1" stroke="currentColor" strokeLinecap="round" strokeWidth="2" />
+              </svg>
+            </div>
+          ) : (
+            <div className="fixed grid h-9 w-9 place-items-center rounded-full bg-accent text-xl font-bold text-white shadow-lg" style={arrowStyle} aria-hidden="true">{arrowPlacement === "left" ? "→" : arrowPlacement === "top" ? "↓" : "↑"}</div>
+          )}
         </>
       ) : <div className="pointer-events-auto fixed inset-0 bg-ink/80 backdrop-blur-[1px]" />}
 

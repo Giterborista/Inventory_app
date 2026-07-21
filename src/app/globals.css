@@ -374,6 +374,27 @@ textarea:focus {
   }
 }
 
+@keyframes tutorial-cursor-float {
+  0%,
+  100% {
+    transform: translate(0, 0);
+  }
+  50% {
+    transform: translate(var(--tutorial-cursor-x, 0), var(--tutorial-cursor-y, 0));
+  }
+}
+
+.tutorial-action-cursor {
+  animation: tutorial-cursor-float 1.8s ease-in-out infinite;
+  will-change: transform;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tutorial-action-cursor {
+    animation: none;
+  }
+}
+
 @keyframes undo-countdown {
   from {
     stroke-dashoffset: 0;
