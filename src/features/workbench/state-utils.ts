@@ -75,6 +75,20 @@ function safeText(value: unknown, fallback = "") {
   return String(value);
 }
 
+function parseNumericValue(value: unknown) {
+  const normalized = safeText(value).replace(",", ".").trim();
+  if (!normalized) {
+    return null;
+  }
+
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function formatScaledValue(value: number) {
+  return Number(value.toFixed(6)).toString();
+}
+
 function normalizeListKey(value: string) {
   return value
     .trim()
@@ -442,6 +456,30 @@ function normalizeMoleculeRecord(molecule: PartialMoleculeRecord): MoleculeRecor
     (molecule as PartialMoleculeRecord & { activityType?: string }).activityType,
     "Production of",
   );
+  const scaleReferenceAmount = safeText(molecule.scaleReferenceAmount, "1");
+  const scaleTargetAmount = safeText(molecule.scaleTargetAmount, "1");
+  const scaleUnit = safeText(molecule.scaleUnit, "kg");
+  const referenceAmount = parseNumericValue(scaleReferenceAmount);
+  const targetAmount = parseNumericValue(scaleTargetAmount);
+  const scaleFactor =
+    referenceAmount !== null && referenceAmount > 0 && targetAmount !== null && targetAmount > 0 && scaleUnit.trim()
+      ? targetAmount / referenceAmount
+      : null;
+  const rows = (molecule.rows ?? []).map((row) => {
+    const normalizedRow = createBlankRow(row.section ?? "INPUT", row.order ?? 1, {
+      ...row,
+      evidenceIds: row.evidenceIds ?? [],
+    });
+    const amount = parseNumericValue(normalizedRow.totalValue);
+
+    return scaleFactor !== null && amount !== null
+      ? {
+          ...normalizedRow,
+          totalScaledValue: formatScaledValue(amount * scaleFactor),
+          scaledUnit: normalizedRow.unit || scaleUnit,
+        }
+      : normalizedRow;
+  });
 
   return {
     ...(molecule as MoleculeRecord),
@@ -467,19 +505,14 @@ function normalizeMoleculeRecord(molecule: PartialMoleculeRecord): MoleculeRecor
     needsReview: molecule.needsReview ?? false,
     topLevel: legacyHierarchy.topLevel ?? legacyHierarchy.isTopLevel ?? false,
     rootOrder: legacyHierarchy.rootOrder ?? 0,
-    scaleReferenceAmount: safeText(molecule.scaleReferenceAmount, "1"),
-    scaleTargetAmount: safeText(molecule.scaleTargetAmount, "1"),
-    scaleUnit: safeText(molecule.scaleUnit, "kg"),
+    scaleReferenceAmount,
+    scaleTargetAmount,
+    scaleUnit,
     sourceWorkbook: safeText(molecule.sourceWorkbook, "Manual entry"),
     sourceSheet: safeText(molecule.sourceSheet),
     importSessionId: safeText(molecule.importSessionId, "manual"),
     pubchemMatch: molecule.pubchemMatch ?? null,
-    rows: (molecule.rows ?? []).map((row) =>
-      createBlankRow(row.section ?? "INPUT", row.order ?? 1, {
-        ...row,
-        evidenceIds: row.evidenceIds ?? [],
-      }),
-    ),
+    rows,
     documentation: normalizeDocumentationRecord(molecule.documentation),
     evidence: (molecule.evidence ?? []).map((evidence) =>
       createEvidenceRecord({
