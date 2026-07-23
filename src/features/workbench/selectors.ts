@@ -1,4 +1,5 @@
 import { normalizeText } from "@/features/workbench/state-utils";
+import { areUnitsEquivalent, unitMismatchMessage } from "@/features/workbench/units";
 import type {
   EvidenceRecord,
   ImportWarning,
@@ -193,6 +194,24 @@ export function getRowInventoryReviewIssues(
     (row.ecoinventStatus === "unchecked" || row.ecoinventStatus === "in_progress")
   ) {
     issues.push({ label: "Review the selected dataset", state: "warning", target: "row-background", rowId: row.id, rowName: row.name, section: row.section });
+  }
+
+  if (
+    !referenceOutput &&
+    !linkedMolecule &&
+    hasDatasetConnection &&
+    row.unit.trim() &&
+    row.ecoinventUnit.trim() &&
+    !areUnitsEquivalent(row.unit, row.ecoinventUnit)
+  ) {
+    issues.push({
+      label: unitMismatchMessage(row.unit.trim(), row.ecoinventUnit.trim()),
+      state: "alert",
+      target: "row-background",
+      rowId: row.id,
+      rowName: row.name,
+      section: row.section,
+    });
   }
 
   return issues;

@@ -13,6 +13,7 @@ import type {
   ResolutionStatus,
   WorkbenchState,
 } from "@/features/workbench/types";
+import { convergeToEcoinventUnit } from "@/features/workbench/units";
 
 type PartialMoleculeRecord = Omit<Partial<MoleculeRecord>, "rows" | "evidence" | "exports" | "documentation"> & {
   rows?: Array<Partial<ReconstructionRow>>;
@@ -211,6 +212,12 @@ export function createBlankRow(
 ): ReconstructionRow {
   const timestamp = nowIso();
   const row = values ?? {};
+  const ecoinventUnit = safeText(row.ecoinventUnit);
+  const unit = convergeToEcoinventUnit(safeText(row.unit, "kg"), ecoinventUnit);
+  const totalScaledValue = safeText(row.totalScaledValue);
+  const scaledUnit = totalScaledValue
+    ? convergeToEcoinventUnit(safeText(row.scaledUnit ?? row.unit, "kg"), ecoinventUnit)
+    : "";
 
   return {
     id: row.id ?? makeClientId("row"),
@@ -230,9 +237,9 @@ export function createBlankRow(
       row.amountSource === "measured" || row.amountSource === "calculated" || row.amountSource === "estimated"
         ? row.amountSource
         : "",
-    unit: safeText(row.unit, "kg"),
-    totalScaledValue: safeText(row.totalScaledValue),
-    scaledUnit: safeText(row.scaledUnit ?? row.unit, "kg"),
+    unit,
+    totalScaledValue,
+    scaledUnit,
     description: safeText(row.description),
     reference: safeText(row.reference),
     iupac: safeText(row.iupac),
@@ -245,7 +252,7 @@ export function createBlankRow(
     ecoinventGeography: safeText(row.ecoinventGeography),
     ecoinventName: safeText(row.ecoinventName),
     ecoinventReferenceProduct: safeText(row.ecoinventReferenceProduct),
-    ecoinventUnit: safeText(row.ecoinventUnit),
+    ecoinventUnit,
     notes: safeText(row.notes),
     relevant: safeText(row.relevant),
     formula: safeText(row.formula),
@@ -362,9 +369,9 @@ export function createMoleculeFromDraft(
     needsReview: draft.ecoinventStatus !== "present",
     topLevel: draft.topLevel,
     rootOrder: 0,
-    scaleReferenceAmount: referenceAmount,
-    scaleTargetAmount: referenceAmount,
-    scaleUnit: referenceUnit,
+    scaleReferenceAmount: "",
+    scaleTargetAmount: "",
+    scaleUnit: "",
     sourceWorkbook: "Manual entry",
     sourceSheet: "",
     importSessionId,
@@ -374,9 +381,9 @@ export function createMoleculeFromDraft(
         objectKind: "generic_object",
         name: referenceProductName,
         totalValue: referenceAmount,
-        totalScaledValue: referenceAmount,
+        totalScaledValue: "",
         unit: referenceUnit,
-        scaledUnit: referenceUnit,
+        scaledUnit: "",
         ecoinventStatus: "unchecked",
         rawEcoinventStatus: "Not checked",
       }),
@@ -456,13 +463,24 @@ function normalizeMoleculeRecord(molecule: PartialMoleculeRecord): MoleculeRecor
     (molecule as PartialMoleculeRecord & { activityType?: string }).activityType,
     "Production of",
   );
-  const scaleReferenceAmount = safeText(molecule.scaleReferenceAmount, "1");
-  const scaleTargetAmount = safeText(molecule.scaleTargetAmount, "1");
-  const scaleUnit = safeText(molecule.scaleUnit, "kg");
-  const referenceAmount = parseNumericValue(scaleReferenceAmount);
-  const targetAmount = parseNumericValue(scaleTargetAmount);
+  const storedScaleReferenceAmount = safeText(molecule.scaleReferenceAmount);
+  const storedScaleTargetAmount = safeText(molecule.scaleTargetAmount);
+  const storedScaleUnit = safeText(molecule.scaleUnit);
+  const referenceAmount = parseNumericValue(storedScaleReferenceAmount);
+  const targetAmount = parseNumericValue(storedScaleTargetAmount);
+  const hasEffectiveScale = Boolean(
+    referenceAmount !== null &&
+    referenceAmount > 0 &&
+    targetAmount !== null &&
+    targetAmount > 0 &&
+    referenceAmount !== targetAmount &&
+    storedScaleUnit.trim(),
+  );
+  const scaleReferenceAmount = hasEffectiveScale ? storedScaleReferenceAmount : "";
+  const scaleTargetAmount = hasEffectiveScale ? storedScaleTargetAmount : "";
+  const scaleUnit = hasEffectiveScale ? storedScaleUnit : "";
   const scaleFactor =
-    referenceAmount !== null && referenceAmount > 0 && targetAmount !== null && targetAmount > 0 && scaleUnit.trim()
+    hasEffectiveScale && referenceAmount !== null && targetAmount !== null
       ? targetAmount / referenceAmount
       : null;
   const rows = (molecule.rows ?? []).map((row) => {

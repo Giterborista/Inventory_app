@@ -10,6 +10,11 @@ import { resolutionLabels } from "@/features/workbench/display";
 import { makeClientId } from "@/features/workbench/state-utils";
 import { getCuratedPubChemSynonymText } from "@/features/workbench/pubchem";
 import { getAncestorIds } from "@/features/workbench/selectors";
+import {
+  areUnitsEquivalent,
+  convergeToEcoinventUnit,
+  unitMismatchMessage,
+} from "@/features/workbench/units";
 import type {
   EcoinventDatasetMatch,
   MoleculeDraft,
@@ -90,6 +95,9 @@ function buildDraft(
     return reaction || cleaning ? formatScaled(reaction + cleaning) : "";
   })();
 
+  const canonicalUnit = convergeToEcoinventUnit(row?.unit ?? "", row?.ecoinventUnit ?? "");
+  const canonicalScaledUnit = convergeToEcoinventUnit(row?.scaledUnit ?? row?.unit ?? "", row?.ecoinventUnit ?? "");
+
   return {
     section: row?.section ?? section,
     objectKind: row?.objectKind ?? "generic_object",
@@ -102,9 +110,9 @@ function buildDraft(
     minimumValue: row?.minimumValue ?? "",
     maximumValue: row?.maximumValue ?? "",
     amountSource: row?.amountSource ?? "",
-    unit: row?.unit ?? "",
+    unit: canonicalUnit,
     totalScaledValue: row?.totalScaledValue ?? "",
-    scaledUnit: row?.scaledUnit ?? row?.unit ?? "",
+    scaledUnit: canonicalScaledUnit,
     cas: row?.cas ?? "",
     iupac: row?.iupac ?? "",
     smiles: row?.smiles ?? "",
@@ -173,27 +181,6 @@ function convertMassValueToKg(value: string, unit: string) {
   }
 
   return null;
-}
-
-function normalizeUnitForComparison(unit: string) {
-  const normalized = unit.trim().toLowerCase().replace(/\s+/g, " ");
-  const aliases: Record<string, string> = {
-    "item(s)": "item",
-    items: "item",
-    unit: "item",
-    units: "item",
-    kilogram: "kg",
-    kilograms: "kg",
-    gram: "g",
-    grams: "g",
-    litre: "l",
-    litres: "l",
-    liter: "l",
-    liters: "l",
-    "m^3": "m3",
-    "m³": "m3",
-  };
-  return aliases[normalized] ?? normalized;
 }
 
 function EditorSectionTab({
@@ -465,10 +452,18 @@ export function RowEditorDialog({
     ((initialRow?.order === 1 && draft.name.trim() === referenceProductName.trim()) ||
       (!initialRow && draft.name.trim() === referenceProductName.trim()));
   const isLinkedProjectItem = Boolean(draft.linkedMoleculeId);
+  const scaleReferenceAmount = parseNumeric(currentMolecule.scaleReferenceAmount);
+  const scaleTargetAmount = parseNumeric(currentMolecule.scaleTargetAmount);
   const scaleFactor =
-    (parseNumeric(currentMolecule.scaleTargetAmount) ?? 1) /
-    Math.max(parseNumeric(currentMolecule.scaleReferenceAmount) ?? 1, Number.EPSILON);
+    scaleReferenceAmount !== null &&
+    scaleReferenceAmount > 0 &&
+    scaleTargetAmount !== null &&
+    scaleTargetAmount > 0 &&
+    currentMolecule.scaleUnit.trim()
+      ? scaleTargetAmount / scaleReferenceAmount
+      : null;
   const rescaledPreview = (() => {
+    if (scaleFactor === null) return "";
     const numeric = parseNumeric(draft.totalValue);
     if (numeric === null) {
       return draft.totalScaledValue;
@@ -502,7 +497,7 @@ export function RowEditorDialog({
   const userUnit = draft.unit.trim();
   const ecoinventUnit = draft.ecoinventUnit.trim();
   const hasUnitMismatch =
-    Boolean(userUnit && ecoinventUnit) && normalizeUnitForComparison(userUnit) !== normalizeUnitForComparison(ecoinventUnit);
+    Boolean(userUnit && ecoinventUnit) && !areUnitsEquivalent(userUnit, ecoinventUnit);
   const selectedDataSource = isLinkedProjectItem
     ? "activity"
     : hasEcoinventMatch
@@ -555,17 +550,22 @@ export function RowEditorDialog({
 
   const applyEcoinventMatch = (match: EcoinventDatasetMatch) => {
     if (selectedDataSource && selectedDataSource !== "ecoinvent") return;
-    setDraft((current) => ({
-      ...current,
-      linkedMoleculeId: null,
-      ecoinventStatus: "present",
-      ecoinventDatasetId: match.datasetId,
-      ecoinventDatasetUuid: match.datasetUuid,
-      ecoinventGeography: match.geography,
-      ecoinventName: match.exactName,
-      ecoinventReferenceProduct: match.referenceProduct,
-      ecoinventUnit: match.unit,
-    }));
+    setDraft((current) => {
+      const unit = convergeToEcoinventUnit(current.unit, match.unit);
+      return {
+        ...current,
+        unit,
+        scaledUnit: convergeToEcoinventUnit(current.scaledUnit || current.unit, match.unit),
+        linkedMoleculeId: null,
+        ecoinventStatus: "present",
+        ecoinventDatasetId: match.datasetId,
+        ecoinventDatasetUuid: match.datasetUuid,
+        ecoinventGeography: match.geography,
+        ecoinventName: match.exactName,
+        ecoinventReferenceProduct: match.referenceProduct,
+        ecoinventUnit: match.unit,
+      };
+    });
     setLinkedActivityNotice(null);
     setReuseSearchOpen(false);
     setSearchQuery("");
@@ -636,9 +636,9 @@ export function RowEditorDialog({
     minimumValue: draft.uncertaintyEnabled ? draft.minimumValue : "",
     maximumValue: draft.uncertaintyEnabled ? draft.maximumValue : "",
     amountSource: draft.amountSource,
-    unit: draft.unit,
+    unit: convergeToEcoinventUnit(draft.unit, draft.ecoinventUnit),
     totalScaledValue: rescaledPreview,
-    scaledUnit: draft.scaledUnit || draft.unit,
+    scaledUnit: convergeToEcoinventUnit(draft.scaledUnit || draft.unit, draft.ecoinventUnit),
     cas: draft.objectKind === "molecule" ? draft.cas : "",
     iupac: draft.objectKind === "molecule" ? draft.iupac : "",
     smiles: draft.objectKind === "molecule" ? draft.smiles : "",
@@ -912,7 +912,7 @@ export function RowEditorDialog({
                   <option value="MJ" />
                   <option value="m3" />
                   <option value="L" />
-                  <option value="tkm" />
+                  <option value="metric ton*km" />
                   <option value="item" />
                 </datalist>
                 {kgConversionPreview ? (
@@ -1073,33 +1073,40 @@ export function RowEditorDialog({
                             return;
                           }
 
-                          setDraft((current) => ({
-                            ...current,
-                            objectKind: item.row.objectKind,
-                            name: item.row.name,
-                            synonyms: (item.row.synonyms ?? []).join(", "),
-                            reactionValue: current.reactionValue || item.row.reactionValue,
-                            cleaningValue: current.cleaningValue || item.row.cleaningValue,
-                            totalValue: current.totalValue || item.row.totalValue,
-                            unit: current.unit || item.row.unit,
-                            totalScaledValue: current.totalScaledValue || item.row.totalScaledValue,
-                            scaledUnit: current.scaledUnit || item.row.scaledUnit,
-                            cas: item.row.cas,
-                            iupac: item.row.iupac,
-                            smiles: item.row.smiles,
-                            formula: item.row.formula,
-                            pubchemMatch: item.row.pubchemMatch ?? null,
-                            linkedMoleculeId: null,
-                            ecoinventStatus: item.row.ecoinventStatus,
-                            ecoinventDatasetId: item.row.ecoinventDatasetId || current.ecoinventDatasetId,
-                            ecoinventDatasetUuid: item.row.ecoinventDatasetUuid || current.ecoinventDatasetUuid,
-                            ecoinventGeography: item.row.ecoinventGeography || current.ecoinventGeography,
-                            ecoinventName: item.row.ecoinventName || current.ecoinventName,
-                            ecoinventReferenceProduct: item.row.ecoinventReferenceProduct || current.ecoinventReferenceProduct,
-                            ecoinventUnit: item.row.ecoinventUnit || current.ecoinventUnit,
-                            reference: current.reference || item.row.reference,
-                            description: current.description || item.row.description,
-                          }));
+                          setDraft((current) => {
+                            const ecoinventUnit = item.row.ecoinventUnit || current.ecoinventUnit;
+                            return {
+                              ...current,
+                              objectKind: item.row.objectKind,
+                              name: item.row.name,
+                              synonyms: (item.row.synonyms ?? []).join(", "),
+                              reactionValue: current.reactionValue || item.row.reactionValue,
+                              cleaningValue: current.cleaningValue || item.row.cleaningValue,
+                              totalValue: current.totalValue || item.row.totalValue,
+                              unit: convergeToEcoinventUnit(current.unit || item.row.unit, ecoinventUnit),
+                              totalScaledValue: current.totalScaledValue || item.row.totalScaledValue,
+                              scaledUnit: convergeToEcoinventUnit(
+                                current.scaledUnit || item.row.scaledUnit,
+                                ecoinventUnit,
+                              ),
+                              cas: item.row.cas,
+                              iupac: item.row.iupac,
+                              smiles: item.row.smiles,
+                              formula: item.row.formula,
+                              pubchemMatch: item.row.pubchemMatch ?? null,
+                              linkedMoleculeId: null,
+                              ecoinventStatus: item.row.ecoinventStatus,
+                              ecoinventDatasetId: item.row.ecoinventDatasetId || current.ecoinventDatasetId,
+                              ecoinventDatasetUuid: item.row.ecoinventDatasetUuid || current.ecoinventDatasetUuid,
+                              ecoinventGeography: item.row.ecoinventGeography || current.ecoinventGeography,
+                              ecoinventName: item.row.ecoinventName || current.ecoinventName,
+                              ecoinventReferenceProduct:
+                                item.row.ecoinventReferenceProduct || current.ecoinventReferenceProduct,
+                              ecoinventUnit,
+                              reference: current.reference || item.row.reference,
+                              description: current.description || item.row.description,
+                            };
+                          });
                         }}
                         type="button"
                       >
@@ -1347,8 +1354,7 @@ export function RowEditorDialog({
                 </div>
                 {hasUnitMismatch ? (
                   <div className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm leading-6 text-amber-900">
-                    Unit mismatch: the row uses <span className="font-semibold">{userUnit}</span>, while the selected
-                    ecoinvent dataset uses <span className="font-semibold">{ecoinventUnit}</span>. Check whether the
+                    Unit mismatch: user <span className="font-semibold">"{userUnit}"</span>, ecoinvent <span className="font-semibold">"{ecoinventUnit}"</span>. Check whether the
                     amount must be converted before using this dataset.
                   </div>
                 ) : null}
@@ -1479,7 +1485,7 @@ export function RowEditorDialog({
         <div className="flex flex-col items-stretch gap-3 border-t border-mist/80 bg-white/90 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-5 sm:py-4">
           <div className="text-sm text-alert">
             {hasUnitMismatch
-              ? `Unit mismatch: change the flow unit to ${draft.ecoinventUnit || "the dataset unit"}, or remove the database connection.`
+              ? `${unitMismatchMessage(userUnit, ecoinventUnit)}. Change the flow unit or remove the database connection.`
               : !canSave && uncertaintyInvalid
               ? "Check the uncertainty range."
               : !canSave && (amountInvalid || referenceAmountInvalid)

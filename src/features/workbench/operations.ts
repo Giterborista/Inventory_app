@@ -165,9 +165,12 @@ function getScaledQuantity(
   molecule: MoleculeRecord,
   originalQuantity: string | number | null | undefined,
 ) {
-  const factor =
-    (parseNumericValue(molecule.scaleTargetAmount) ?? 1) /
-    Math.max(parseNumericValue(molecule.scaleReferenceAmount) ?? 1, Number.EPSILON);
+  const referenceAmount = parseNumericValue(molecule.scaleReferenceAmount);
+  const targetAmount = parseNumericValue(molecule.scaleTargetAmount);
+  if (referenceAmount === null || referenceAmount <= 0 || targetAmount === null || targetAmount <= 0 || !molecule.scaleUnit.trim()) {
+    return "";
+  }
+  const factor = targetAmount / referenceAmount;
   const numeric = parseNumericValue(originalQuantity);
   return numeric === null ? "" : formatScaledValue(numeric * factor);
 }
@@ -287,6 +290,7 @@ function createLinkedInputRow(
   rowValues: ChildDependencyRowValues,
 ) {
   const nextOrder = parentMolecule.rows.filter((row) => row.section === "INPUT").length + 1;
+  const totalScaledValue = getScaledQuantity(parentMolecule, rowValues.totalValue);
 
   return createBlankRow("INPUT", nextOrder, {
     objectKind: childMolecule.objectKind,
@@ -294,8 +298,8 @@ function createLinkedInputRow(
     synonyms: childMolecule.synonyms,
     totalValue: rowValues.totalValue,
     unit: rowValues.unit || "kg",
-    totalScaledValue: getScaledQuantity(parentMolecule, rowValues.totalValue),
-    scaledUnit: rowValues.unit || parentMolecule.scaleUnit,
+    totalScaledValue,
+    scaledUnit: totalScaledValue ? rowValues.unit || parentMolecule.scaleUnit : "",
     cas: childMolecule.cas,
     iupac: childMolecule.iupac,
     smiles: childMolecule.smiles,
@@ -320,8 +324,8 @@ function createReferenceOutputRowFromDraft(draft: MoleculeDraft, unit = "kg") {
     synonyms: [],
     unit: referenceUnit,
     totalValue: referenceAmount,
-    totalScaledValue: referenceAmount,
-    scaledUnit: referenceUnit,
+    totalScaledValue: "",
+    scaledUnit: "",
     cas: "",
     iupac: "",
     smiles: "",
@@ -340,7 +344,7 @@ function createReferenceOutputRowFromInputRow(row: ReconstructionRow) {
     unit: row.unit || "kg",
     totalValue: "",
     totalScaledValue: "",
-    scaledUnit: row.unit || "kg",
+    scaledUnit: "",
     cas: row.objectKind === "generic_object" ? "" : row.cas,
     iupac: row.objectKind === "generic_object" ? "" : row.iupac,
     smiles: row.objectKind === "generic_object" ? "" : row.smiles,
@@ -1145,7 +1149,10 @@ export function updateMoleculeField(
       };
 
       return field === "scaleReferenceAmount" || field === "scaleTargetAmount" || field === "scaleUnit"
-        ? { ...updatedMolecule, rows: rescaleRows(updatedMolecule) }
+        ? {
+            ...updatedMolecule,
+            rows: updatedMolecule.rows.map((row) => ({ ...row, totalScaledValue: "", scaledUnit: "" })),
+          }
         : updatedMolecule;
     }
 
@@ -1568,14 +1575,21 @@ export function saveReconstructionRow(
     const effectiveReferenceAmount = isReferenceProductRow
       ? parseNumericValue(originalQuantity)
       : parseNumericValue(molecule.scaleReferenceAmount);
-    const factor =
-      (parseNumericValue(molecule.scaleTargetAmount) ?? 1) /
-      Math.max(effectiveReferenceAmount ?? 1, Number.EPSILON);
+    const targetAmount = parseNumericValue(molecule.scaleTargetAmount);
+    const scalingConfigured =
+      effectiveReferenceAmount !== null &&
+      effectiveReferenceAmount > 0 &&
+      targetAmount !== null &&
+      targetAmount > 0 &&
+      molecule.scaleUnit.trim().length > 0;
+    const factor = scalingConfigured ? targetAmount / effectiveReferenceAmount : null;
     const scaledQuantity =
-      effectiveValues.totalScaledValue ??
+      !scalingConfigured
+        ? ""
+        : effectiveValues.totalScaledValue ??
       (() => {
         const numeric = parseNumericValue(originalQuantity);
-        return numeric === null ? "" : formatScaledValue(numeric * factor);
+        return numeric === null || factor === null ? "" : formatScaledValue(numeric * factor);
       })();
     const hasExistingRow = Boolean(existingRow);
 
@@ -1592,7 +1606,9 @@ export function saveReconstructionRow(
             id: rowId ?? effectiveValues.id,
             totalValue: originalQuantity,
             totalScaledValue: scaledQuantity,
-            scaledUnit: effectiveValues.scaledUnit ?? effectiveValues.unit ?? molecule.scaleUnit,
+            scaledUnit: scalingConfigured
+              ? effectiveValues.scaledUnit ?? effectiveValues.unit ?? molecule.scaleUnit
+              : "",
           }),
         ],
       };
@@ -1612,7 +1628,9 @@ export function saveReconstructionRow(
                 section,
                 totalValue: originalQuantity,
                 totalScaledValue: scaledQuantity,
-                scaledUnit: effectiveValues.scaledUnit ?? effectiveValues.unit ?? row.scaledUnit,
+                scaledUnit: scalingConfigured
+                  ? effectiveValues.scaledUnit ?? effectiveValues.unit ?? row.scaledUnit
+                  : "",
                 updatedAt: nowIso(),
               };
             })()
@@ -1624,11 +1642,15 @@ export function saveReconstructionRow(
       return nextMolecule;
     }
 
+    const scalingWasConfigured = Boolean(
+      molecule.scaleReferenceAmount.trim() && molecule.scaleTargetAmount.trim() && molecule.scaleUnit.trim(),
+    );
+
     return {
       ...nextMolecule,
-      scaleReferenceAmount: originalQuantity || molecule.scaleReferenceAmount,
-      scaleTargetAmount: molecule.scaleTargetAmount || originalQuantity || "1",
-      scaleUnit: String(effectiveValues.unit || molecule.scaleUnit || "kg"),
+      scaleReferenceAmount: scalingWasConfigured ? originalQuantity || molecule.scaleReferenceAmount : "",
+      scaleTargetAmount: scalingWasConfigured ? molecule.scaleTargetAmount : "",
+      scaleUnit: scalingWasConfigured ? String(effectiveValues.unit || molecule.scaleUnit) : "",
     };
   });
 

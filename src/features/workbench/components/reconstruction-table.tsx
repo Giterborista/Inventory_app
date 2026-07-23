@@ -138,10 +138,13 @@ function InlineRowEditorSheet({
   const parsedAmount = parseNumeric(draft.totalValue);
   const amountInvalid = draft.totalValue.trim().length > 0 && parsedAmount === null;
   const canSave = draft.name.trim().length > 0 && !amountInvalid && draft.unit.trim().length > 0;
+  const referenceAmount = parseNumeric(molecule.scaleReferenceAmount);
+  const targetAmount = parseNumeric(molecule.scaleTargetAmount);
   const scaleFactor =
-    (parseNumeric(molecule.scaleTargetAmount) ?? 1) /
-    Math.max(parseNumeric(molecule.scaleReferenceAmount) ?? 1, Number.EPSILON);
-  const scaledPreview = parsedAmount === null ? "" : formatScaled(parsedAmount * scaleFactor);
+    referenceAmount !== null && referenceAmount > 0 && targetAmount !== null && targetAmount > 0 && molecule.scaleUnit.trim()
+      ? targetAmount / referenceAmount
+      : null;
+  const scaledPreview = parsedAmount === null || scaleFactor === null ? "" : formatScaled(parsedAmount * scaleFactor);
   const modeLabel = row ? "Edit row" : `Add ${section.toLowerCase()} row`;
 
   return (
@@ -272,7 +275,7 @@ function InlineRowEditorSheet({
                     name: draft.name.trim(),
                     totalValue: draft.totalValue.trim(),
                     unit: draft.unit.trim(),
-                    scaledUnit: draft.unit.trim(),
+                    scaledUnit: scaleFactor === null ? "" : draft.unit.trim(),
                     totalScaledValue: scaledPreview,
                     notes: draft.notes,
                     description: row?.description ?? "",
@@ -514,6 +517,7 @@ export function ReconstructionTable({
   const referenceAmount = parseNumeric(molecule.scaleReferenceAmount);
   const targetAmount = parseNumeric(molecule.scaleTargetAmount);
   const scaleValid = Boolean(referenceAmount && referenceAmount > 0 && targetAmount && targetAmount > 0 && molecule.scaleUnit.trim());
+  const scalingApplied = Boolean(scaleValid && molecule.rows.some((row) => row.totalScaledValue.trim().length > 0));
   const scaledColumnVisible = Boolean(
     scaleValid &&
     referenceAmount !== targetAmount &&
@@ -641,16 +645,34 @@ export function ReconstructionTable({
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
               <span className="text-xs font-semibold text-slate">Scale amounts</span>
-              <span className="text-xs text-slate">{molecule.scaleReferenceAmount || "–"} {molecule.scaleUnit || "kg"} → {molecule.scaleTargetAmount || "–"} {molecule.scaleUnit || "kg"}</span>
+              <span className="text-xs text-slate">
+                {scalingApplied
+                  ? `${molecule.scaleReferenceAmount} ${molecule.scaleUnit} → ${molecule.scaleTargetAmount} ${molecule.scaleUnit}`
+                  : "Not applied"}
+              </span>
             </div>
-            <button className="rounded-sm border border-mist px-3 py-1.5 text-xs font-semibold text-slate transition hover:bg-lab hover:text-ink" onClick={() => setScaleOpen((current) => !current)} type="button">{scaleOpen ? "Done" : "Edit scale"}</button>
+            <button
+              className="rounded-sm border border-mist px-3 py-1.5 text-xs font-semibold text-slate transition hover:bg-lab hover:text-ink"
+              onClick={() => {
+                if (!scaleOpen && !molecule.scaleReferenceAmount && !molecule.scaleTargetAmount && !molecule.scaleUnit) {
+                  const referenceOutput = outputRows[0];
+                  onUpdateScaleField("scaleReferenceAmount", referenceOutput?.totalValue || "1");
+                  onUpdateScaleField("scaleTargetAmount", "1");
+                  onUpdateScaleField("scaleUnit", referenceOutput?.unit || "kg");
+                }
+                setScaleOpen((current) => !current);
+              }}
+              type="button"
+            >
+              {scaleOpen ? "Close calculator" : scalingApplied ? "Edit scale" : "Open calculator"}
+            </button>
           </div>
           {scaleOpen ? (
             <div className="mt-3 flex flex-wrap items-end gap-3 border-t border-mist/40 pt-3">
               <label className="block w-28"><span className="text-xs text-slate">Recorded</span><input aria-invalid={referenceAmount === null || referenceAmount <= 0} className="mt-1 h-9 w-full rounded-sm border border-mist bg-white px-3 text-sm text-ink outline-none focus:border-slate" inputMode="decimal" onChange={(event) => onUpdateScaleField("scaleReferenceAmount", event.target.value)} value={molecule.scaleReferenceAmount} /></label>
               <label className="block w-28"><span className="text-xs text-slate">Target</span><input aria-invalid={targetAmount === null || targetAmount <= 0} className="mt-1 h-9 w-full rounded-sm border border-mist bg-white px-3 text-sm text-ink outline-none focus:border-slate" inputMode="decimal" onChange={(event) => onUpdateScaleField("scaleTargetAmount", event.target.value)} value={molecule.scaleTargetAmount} /></label>
               <label className="block w-24"><span className="text-xs text-slate">Unit</span><input className="mt-1 h-9 w-full rounded-sm border border-mist bg-white px-3 text-sm text-ink outline-none focus:border-slate" onChange={(event) => onUpdateScaleField("scaleUnit", event.target.value)} value={molecule.scaleUnit} /></label>
-              <button className="h-9 rounded-sm border border-mist px-3 text-xs font-semibold text-ink transition hover:bg-lab disabled:cursor-not-allowed disabled:opacity-40" disabled={!scaleValid} onClick={onRescale} type="button">Recalculate</button>
+              <button className="h-9 rounded-sm border border-mist px-3 text-xs font-semibold text-ink transition hover:bg-lab disabled:cursor-not-allowed disabled:opacity-40" disabled={!scaleValid} onClick={onRescale} type="button">Apply scaling</button>
               {!scaleValid ? <span className="pb-2 text-xs text-alert">Enter positive amounts and a unit.</span> : null}
             </div>
           ) : null}
