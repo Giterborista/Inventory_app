@@ -64,6 +64,7 @@ type ObjectInventoryProps = {
   onApplyPasDefaults: (profile: PasProfile) => void;
   onRescaleRows: () => void;
   onRemoveScaling: () => void;
+  onSetMainOutput: (rowId: string) => void;
   autoOpenRowEditor?: ReconstructionSection | null;
   onAutoOpenRowEditorHandled?: () => void;
   projectIssueFocus?: ProjectValidationIssue | null;
@@ -113,6 +114,7 @@ export function ObjectInventory({
   onApplyPasDefaults,
   onRescaleRows,
   onRemoveScaling,
+  onSetMainOutput,
   autoOpenRowEditor,
   onAutoOpenRowEditorHandled,
   projectIssueFocus,
@@ -323,6 +325,7 @@ export function ObjectInventory({
                 onOpenMolecule={onOpenMolecule}
                 onRescale={onRescaleRows}
                 onRemoveScaling={onRemoveScaling}
+                onSetMainOutput={onSetMainOutput}
                 onSaveRow={onSaveRow}
                 onUpdateScaleField={(field, value) => onUpdateMoleculeField(field, value)}
                 project={project}

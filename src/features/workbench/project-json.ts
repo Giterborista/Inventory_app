@@ -13,7 +13,7 @@ import type {
   WorkbenchState,
 } from "@/features/workbench/types";
 
-export const CURRENT_PROJECT_SCHEMA_VERSION = 2;
+export const CURRENT_PROJECT_SCHEMA_VERSION = 3;
 
 type ProjectDocument = {
   schemaVersion: number;
@@ -124,6 +124,12 @@ function migrateRow(value: unknown): Partial<ReconstructionRow> {
   return {
     id: asString(record.id),
     section: (record.section === "OUTPUT" ? "OUTPUT" : "INPUT") as ReconstructionRow["section"],
+    outputRole:
+      record.section === "OUTPUT" && (record.outputRole === "main" || record.isReferenceOutput === true)
+        ? "main"
+        : record.section === "OUTPUT"
+          ? "other"
+          : "",
     order: Number(record.order ?? 0) || 0,
     objectKind: record.objectKind === "generic_object" ? "generic_object" : "molecule",
     name: asString(record.name),
@@ -250,6 +256,7 @@ function migrateMolecule(value: unknown): Partial<MoleculeRecord> {
     id: asString(record.id),
     activityType: asString(record.activityType || "Production of"),
     referenceProductName,
+    mainOutputRowId: asString(record.mainOutputRowId || record.referenceOutputRowId),
     objectKind: record.objectKind === "generic_object" ? "generic_object" : "molecule",
     name: asString(record.name || referenceProductName),
     cas: asString(record.cas),
@@ -435,6 +442,7 @@ function stripProjectForExport(project: ProjectRecord): ProjectRecord {
       id: molecule.id,
       activityType: molecule.activityType,
       referenceProductName: molecule.referenceProductName,
+      mainOutputRowId: molecule.mainOutputRowId,
       objectKind: molecule.objectKind,
       name: molecule.name,
       cas: molecule.cas,
@@ -465,6 +473,7 @@ function stripProjectForExport(project: ProjectRecord): ProjectRecord {
       rows: molecule.rows.map((row) => ({
         id: row.id,
         section: row.section,
+        outputRole: row.outputRole,
         order: row.order,
         objectKind: row.objectKind,
         name: row.name,

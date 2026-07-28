@@ -42,6 +42,7 @@ type ReconstructionTableProps = {
   onSaveRow: (section: ReconstructionSection, values: Partial<ReconstructionRow>, rowId?: string) => void;
   onRescale: () => void;
   onRemoveScaling: () => void;
+  onSetMainOutput: (rowId: string) => void;
   onUpdateScaleField: (field: "scaleReferenceAmount" | "scaleTargetAmount" | "scaleUnit", value: string) => void;
   autoOpenSection?: ReconstructionSection | null;
   onAutoOpenHandled?: () => void;
@@ -304,6 +305,7 @@ function RowTable({
   onOpenAdvancedEditor,
   onOpenEditor,
   onOpenMolecule,
+  onSetMainOutput,
   onSaveInlineRow,
   project,
   rows,
@@ -321,6 +323,7 @@ function RowTable({
     panel?: "details" | "dataset" | "notes",
   ) => void;
   onOpenMolecule: (moleculeId: string) => void;
+  onSetMainOutput: (rowId: string) => void;
   onSaveInlineRow: (values: Partial<ReconstructionRow>, rowId?: string) => void;
   project: ProjectRecord;
   rows: ReconstructionRow[];
@@ -397,7 +400,12 @@ function RowTable({
               <Fragment key={row.id}>
               <tr className={`border-b border-mist/60 align-top transition hover:bg-lab/55 ${inlineOpenForRow ? "bg-accent-soft/45" : ""}`}>
                 <td className="px-4 py-4">
-                  <div className="font-semibold text-ink">{row.name || "Untitled row"}</div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <div className="font-semibold text-ink">{row.name || "Untitled row"}</div>
+                    {referenceProductOutput ? (
+                      <span className="rounded-sm bg-accent/10 px-2 py-0.5 text-[10px] font-semibold text-accent">Main output</span>
+                    ) : null}
+                  </div>
                   {rowPreview ? <div className="mt-1 max-w-xl text-xs leading-5 text-slate">{rowPreview}</div> : null}
                   <div className="mt-2 flex flex-wrap items-center gap-2">
                     {hasMeaningfulRo(row.ro) ? <span className="text-[11px] font-medium text-slate">RO {row.ro}</span> : null}
@@ -434,6 +442,15 @@ function RowTable({
                 ) : null}
                 <td className="px-4 py-4">
                   <div className="flex justify-end gap-2">
+                    {section === "OUTPUT" && !referenceProductOutput ? (
+                      <button
+                        className="rounded-md px-2 py-2 text-xs font-semibold text-slate transition hover:bg-accent/10 hover:text-accent"
+                        onClick={() => onSetMainOutput(row.id)}
+                        type="button"
+                      >
+                        Set as main
+                      </button>
+                    ) : null}
                     <button
                       className="rounded-md px-2 py-2 text-xs font-semibold text-slate transition hover:bg-lab hover:text-accent"
                       onClick={() => onOpenEditor(section, row)}
@@ -490,6 +507,7 @@ export function ReconstructionTable({
   onSaveRow,
   onRescale,
   onRemoveScaling,
+  onSetMainOutput,
   onUpdateScaleField,
   autoOpenSection,
   onAutoOpenHandled,
@@ -635,6 +653,7 @@ export function ReconstructionTable({
             onOpenAdvancedEditor={openAdvancedEditor}
             onOpenEditor={openEditor}
             onOpenMolecule={onOpenMolecule}
+            onSetMainOutput={onSetMainOutput}
             onSaveInlineRow={saveInlineRow}
             project={project}
             rows={activeRows}

@@ -320,6 +320,7 @@ function createReferenceOutputRowFromDraft(draft: MoleculeDraft, unit = "kg") {
 
   return createBlankRow("OUTPUT", 1, {
     objectKind: "generic_object",
+    outputRole: "main",
     name: draft.referenceProductName || draft.name || "Main output",
     synonyms: [],
     unit: referenceUnit,
@@ -339,6 +340,7 @@ function createReferenceOutputRowFromDraft(draft: MoleculeDraft, unit = "kg") {
 function createReferenceOutputRowFromInputRow(row: ReconstructionRow) {
   return createBlankRow("OUTPUT", 1, {
     objectKind: row.objectKind,
+    outputRole: "main",
     name: row.name || "Main output",
     synonyms: row.synonyms,
     unit: row.unit || "kg",
@@ -356,9 +358,8 @@ function createReferenceOutputRowFromInputRow(row: ReconstructionRow) {
 }
 
 function hasNamedReferenceOutput(molecule: MoleculeRecord) {
-  const referenceProductName = (molecule.referenceProductName || molecule.name).trim();
   return molecule.rows.some(
-    (row) => row.section === "OUTPUT" && row.name.trim() === referenceProductName,
+    (row) => row.section === "OUTPUT" && row.id === molecule.mainOutputRowId,
   );
 }
 
@@ -369,7 +370,8 @@ function addReferenceOutputFromInputRow(molecule: MoleculeRecord, inputRow: Reco
     .sort((left, right) => left.order - right.order)
     .map((row, index) => ({ ...row, order: index + 2 }));
 
-  return [...inputRows, createReferenceOutputRowFromInputRow(inputRow), ...existingOutputRows];
+  const mainOutput = createReferenceOutputRowFromInputRow(inputRow);
+  return { rows: [...inputRows, mainOutput, ...existingOutputRows], mainOutputRowId: mainOutput.id };
 }
 
 function documentationHasContent(documentation: DocumentationRecord) {
@@ -1157,17 +1159,13 @@ export function updateMoleculeField(
     }
 
     const nextName = String(normalizedValue);
-    let referenceOutputUpdated = false;
-
     return {
       ...molecule,
       referenceProductName: nextName,
       rows: molecule.rows.map((row) => {
-        if (referenceOutputUpdated || row.section !== "OUTPUT") {
+        if (row.id !== molecule.mainOutputRowId) {
           return row;
         }
-
-        referenceOutputUpdated = true;
         return {
           ...row,
           name: nextName || row.name,
@@ -1414,9 +1412,10 @@ export function ensureLinkedObjectReferenceOutput(
       return linkedMolecule;
     }
 
+    const referenceOutput = addReferenceOutputFromInputRow(linkedMolecule, inputRow);
     return {
       ...linkedMolecule,
-      rows: addReferenceOutputFromInputRow(linkedMolecule, inputRow),
+      ...referenceOutput,
     };
   });
 }
@@ -1444,9 +1443,10 @@ export function ensureLinkedObjectReferenceOutputs(state: WorkbenchState): Workb
     }
 
     changed = true;
+    const referenceOutput = addReferenceOutputFromInputRow(molecule, incomingRow);
     return {
       ...molecule,
-      rows: addReferenceOutputFromInputRow(molecule, incomingRow),
+      ...referenceOutput,
       updatedAt: nowIso(),
     };
   });
@@ -1556,10 +1556,7 @@ export function saveReconstructionRow(
     : null;
   const nextState = updateOneMolecule(state, moleculeId, (molecule) => {
     const existingRow = rowId ? molecule.rows.find((row) => row.id === rowId) : null;
-    const isReferenceProductRow =
-      Boolean(existingRow) &&
-      existingRow?.section === "OUTPUT" &&
-      existingRow.order === 1;
+    const isReferenceProductRow = Boolean(existingRow) && existingRow?.id === molecule.mainOutputRowId;
     const effectiveValues = isReferenceProductRow
       ? {
           ...values,
@@ -1596,21 +1593,25 @@ export function saveReconstructionRow(
     if (!rowId || !hasExistingRow) {
       const nextOrder = molecule.rows.filter((row) => row.section === section).length + 1;
       const normalizedSynonyms = sanitizeStringList(effectiveValues.synonyms ?? []);
+      const shouldBecomeMain =
+        section === "OUTPUT" &&
+        !molecule.rows.some((row) => row.section === "OUTPUT" && row.id === molecule.mainOutputRowId);
+      const newRow = createBlankRow(section, nextOrder, {
+        ...effectiveValues,
+        outputRole: shouldBecomeMain ? "main" : section === "OUTPUT" ? "other" : "",
+        synonyms: normalizedSynonyms,
+        id: rowId ?? effectiveValues.id,
+        totalValue: originalQuantity,
+        totalScaledValue: scaledQuantity,
+        scaledUnit: scalingConfigured
+          ? effectiveValues.scaledUnit ?? effectiveValues.unit ?? molecule.scaleUnit
+          : "",
+      });
       return {
         ...molecule,
-        rows: [
-          ...molecule.rows,
-          createBlankRow(section, nextOrder, {
-            ...effectiveValues,
-            synonyms: normalizedSynonyms,
-            id: rowId ?? effectiveValues.id,
-            totalValue: originalQuantity,
-            totalScaledValue: scaledQuantity,
-            scaledUnit: scalingConfigured
-              ? effectiveValues.scaledUnit ?? effectiveValues.unit ?? molecule.scaleUnit
-              : "",
-          }),
-        ],
+        mainOutputRowId: shouldBecomeMain ? newRow.id : molecule.mainOutputRowId,
+        referenceProductName: shouldBecomeMain ? newRow.name || molecule.referenceProductName : molecule.referenceProductName,
+        rows: [...molecule.rows, newRow],
       };
     }
 
@@ -1863,6 +1864,9 @@ export function deleteReconstructionRow(
   rowId: string,
 ): WorkbenchState {
   return updateOneMolecule(state, moleculeId, (molecule) => {
+    if (rowId === molecule.mainOutputRowId) {
+      return molecule;
+    }
     const remainingRows = molecule.rows.filter((row) => row.id !== rowId);
     const remainingEvidence = molecule.evidence.filter((evidence) => evidence.rowId !== rowId);
 
@@ -1873,6 +1877,48 @@ export function deleteReconstructionRow(
         ...normalizeSectionRows(remainingRows.filter((row) => row.section === "INPUT")),
         ...normalizeSectionRows(remainingRows.filter((row) => row.section === "OUTPUT")),
       ],
+    };
+  });
+}
+
+export function setMoleculeMainOutput(
+  state: WorkbenchState,
+  moleculeId: string,
+  rowId: string,
+): WorkbenchState {
+  return updateOneMolecule(state, moleculeId, (molecule) => {
+    const selected = molecule.rows.find((row) => row.id === rowId && row.section === "OUTPUT");
+    if (!selected) {
+      return molecule;
+    }
+
+    return {
+      ...molecule,
+      mainOutputRowId: selected.id,
+      referenceProductName: selected.name || molecule.referenceProductName,
+      scaleReferenceAmount: "",
+      scaleTargetAmount: "",
+      scaleUnit: "",
+      rows: molecule.rows.map((row) => ({
+        ...row,
+        outputRole: row.section === "OUTPUT" ? (row.id === selected.id ? "main" : "other") : "",
+        totalScaledValue: "",
+        scaledUnit: "",
+        ...(row.id === selected.id
+          ? {
+              linkedMoleculeId: null,
+              ecoinventDatasetId: "",
+              ecoinventDatasetUuid: "",
+              ecoinventGeography: "",
+              ecoinventName: "",
+              ecoinventReferenceProduct: "",
+              ecoinventUnit: "",
+              ecoinventStatus: "unchecked" as const,
+              rawEcoinventStatus: "Not checked",
+            }
+          : {}),
+        updatedAt: row.id === selected.id ? nowIso() : row.updatedAt,
+      })),
     };
   });
 }

@@ -131,6 +131,12 @@ export function getReferenceProductRow(molecule: MoleculeRecord) {
   const referenceProductName = molecule.referenceProductName || molecule.name;
   return (
     molecule.rows.find(
+      (row) => row.section === "OUTPUT" && row.id === molecule.mainOutputRowId,
+    ) ??
+    molecule.rows.find(
+      (row) => row.section === "OUTPUT" && row.outputRole === "main",
+    ) ??
+    molecule.rows.find(
       (row) =>
         row.section === "OUTPUT" &&
         row.order === 1 &&

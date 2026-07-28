@@ -22,6 +22,7 @@ import {
   rescaleMoleculeRows,
   saveReconstructionRow,
   selectMolecule,
+  setMoleculeMainOutput,
   updateProjectName,
   updateDocumentation,
   updateMoleculeField,
@@ -462,6 +463,9 @@ export function WorkbenchApp() {
           }
           onRemoveScaling={() =>
             applyStateChange((current) => removeMoleculeScaling(current, selectedMolecule.id))
+          }
+          onSetMainOutput={(rowId) =>
+            applyStateChange((current) => setMoleculeMainOutput(current, selectedMolecule.id, rowId))
           }
           onSaveProjectJson={downloadProjectJson}
           onSaveRow={(section, values, rowId) =>

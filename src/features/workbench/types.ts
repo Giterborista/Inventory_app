@@ -8,6 +8,7 @@ export type ResolutionStatus =
 export type ReviewStatus = "draft" | "in_progress" | "ready" | "reviewed";
 
 export type ReconstructionSection = "INPUT" | "OUTPUT";
+export type OutputRole = "" | "main" | "other";
 
 export type LinkMethod = "folder" | "cas" | "name" | "heuristic" | "manual" | "placeholder";
 
@@ -90,6 +91,7 @@ export type EvidenceRecord = {
 export type ReconstructionRow = {
   id: string;
   section: ReconstructionSection;
+  outputRole: OutputRole;
   order: number;
   objectKind: ObjectKind;
   name: string;
@@ -229,6 +231,7 @@ export type MoleculeRecord = {
   id: string;
   activityType: ActivityType;
   referenceProductName: string;
+  mainOutputRowId: string;
   objectKind: ObjectKind;
   name: string;
   cas: string;

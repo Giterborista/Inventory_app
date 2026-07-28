@@ -222,6 +222,12 @@ export function createBlankRow(
   return {
     id: row.id ?? makeClientId("row"),
     section: row.section ?? section,
+    outputRole:
+      (row.section ?? section) === "OUTPUT"
+        ? row.outputRole === "main"
+          ? "main"
+          : "other"
+        : "",
     order: row.order ?? order,
     objectKind: row.objectKind === "molecule" ? "molecule" : "generic_object",
     name: safeText(row.name),
@@ -348,11 +354,23 @@ export function createMoleculeFromDraft(
   const activityName = safeText(draft.name, `Production of ${referenceProductName}`).trim();
   const referenceAmount = safeText(draft.referenceAmount, "1").trim() || "1";
   const referenceUnit = safeText(draft.referenceUnit, "kg").trim() || "kg";
+  const mainOutput = createBlankRow("OUTPUT", 1, {
+    objectKind: "generic_object",
+    outputRole: "main",
+    name: referenceProductName,
+    totalValue: referenceAmount,
+    totalScaledValue: "",
+    unit: referenceUnit,
+    scaledUnit: "",
+    ecoinventStatus: "unchecked",
+    rawEcoinventStatus: "Not checked",
+  });
 
   return {
     id: moleculeId,
     activityType: draft.activityType ?? "production",
     referenceProductName,
+    mainOutputRowId: mainOutput.id,
     objectKind: draft.objectKind ?? "molecule",
     name: activityName,
     cas: normalizeCas(draft.cas),
@@ -376,18 +394,7 @@ export function createMoleculeFromDraft(
     sourceSheet: "",
     importSessionId,
     pubchemMatch: draft.pubchemMatch ?? null,
-    rows: [
-      createBlankRow("OUTPUT", 1, {
-        objectKind: "generic_object",
-        name: referenceProductName,
-        totalValue: referenceAmount,
-        totalScaledValue: "",
-        unit: referenceUnit,
-        scaledUnit: "",
-        ecoinventStatus: "unchecked",
-        rawEcoinventStatus: "Not checked",
-      }),
-    ],
+    rows: [mainOutput],
     documentation,
     evidence: [],
     exports: [],
@@ -499,11 +506,32 @@ function normalizeMoleculeRecord(molecule: PartialMoleculeRecord): MoleculeRecor
       : normalizedRow;
   });
 
+  const outputRows = rows.filter((row) => row.section === "OUTPUT");
+  const storedMainOutputRowId = safeText(
+    (molecule as PartialMoleculeRecord & { mainOutputRowId?: string }).mainOutputRowId,
+  );
+  const explicitIdMatch = outputRows.find((row) => row.id === storedMainOutputRowId);
+  const roleMatches = outputRows.filter((row) => row.outputRole === "main");
+  const nameMatches = outputRows.filter(
+    (row) => row.name.trim().toLocaleLowerCase() === referenceProductName.trim().toLocaleLowerCase(),
+  );
+  const selectedMainOutput =
+    explicitIdMatch ??
+    (roleMatches.length === 1 ? roleMatches[0] : null) ??
+    (nameMatches.length === 1 ? nameMatches[0] : null) ??
+    (outputRows.length === 1 ? outputRows[0] : null);
+  const mainOutputRowId = selectedMainOutput?.id ?? "";
+  const normalizedRows = rows.map((row) => ({
+    ...row,
+    outputRole: row.section === "OUTPUT" ? (row.id === mainOutputRowId ? "main" as const : "other" as const) : "" as const,
+  }));
+
   return {
     ...(molecule as MoleculeRecord),
     id: molecule.id ?? makeClientId("molecule"),
     activityType,
     referenceProductName,
+    mainOutputRowId,
     objectKind: molecule.objectKind === "generic_object" ? "generic_object" : "molecule",
     name: safeText(molecule.name || referenceProductName, "Untitled activity"),
     cas: safeText(molecule.cas),
@@ -530,7 +558,7 @@ function normalizeMoleculeRecord(molecule: PartialMoleculeRecord): MoleculeRecor
     sourceSheet: safeText(molecule.sourceSheet),
     importSessionId: safeText(molecule.importSessionId, "manual"),
     pubchemMatch: molecule.pubchemMatch ?? null,
-    rows,
+    rows: normalizedRows,
     documentation: normalizeDocumentationRecord(molecule.documentation),
     evidence: (molecule.evidence ?? []).map((evidence) =>
       createEvidenceRecord({

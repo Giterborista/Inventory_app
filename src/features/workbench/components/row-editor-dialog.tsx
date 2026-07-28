@@ -9,7 +9,7 @@ import { PubChemLookupDialog } from "@/features/workbench/components/pubchem-loo
 import { resolutionLabels } from "@/features/workbench/display";
 import { makeClientId } from "@/features/workbench/state-utils";
 import { getCuratedPubChemSynonymText } from "@/features/workbench/pubchem";
-import { getAncestorIds } from "@/features/workbench/selectors";
+import { getAncestorIds, getReferenceProductRow } from "@/features/workbench/selectors";
 import {
   areUnitsEquivalent,
   convergeToEcoinventUnit,
@@ -446,11 +446,8 @@ export function RowEditorDialog({
   }, [currentMolecule.id, initialRow?.id, project, searchQuery]);
 
   const selectedMolecule = project.molecules.find((molecule) => molecule.id === draft.linkedMoleculeId) ?? null;
-  const referenceProductName = currentMolecule.referenceProductName || currentMolecule.name;
   const isReferenceOutputRow =
-    draft.section === "OUTPUT" &&
-    ((initialRow?.order === 1 && draft.name.trim() === referenceProductName.trim()) ||
-      (!initialRow && draft.name.trim() === referenceProductName.trim()));
+    draft.section === "OUTPUT" && initialRow?.id === currentMolecule.mainOutputRowId;
   const isLinkedProjectItem = Boolean(draft.linkedMoleculeId);
   const scaleReferenceAmount = parseNumeric(currentMolecule.scaleReferenceAmount);
   const scaleTargetAmount = parseNumeric(currentMolecule.scaleTargetAmount);
@@ -1281,7 +1278,7 @@ export function RowEditorDialog({
                         <input id="existing-activity-search" className="mt-2 w-full rounded-sm border border-mist bg-white px-3 py-2.5 text-sm text-ink outline-none focus:border-slate" onChange={(event) => setSearchQuery(event.target.value)} placeholder="Search by activity name or main output" value={searchQuery} />
                         <div className="mt-2 max-h-52 space-y-1 overflow-y-auto">
                           {searchResults.filter((item): item is Extract<ProjectItemResult, { kind: "molecule" }> => item.kind === "molecule").map((item) => {
-                            const mainOutput = item.molecule.rows.find((row) => row.section === "OUTPUT" && row.order === 1);
+                            const mainOutput = getReferenceProductRow(item.molecule);
                             return (
                               <button className="flex w-full items-center justify-between gap-4 rounded-sm border border-transparent px-3 py-2.5 text-left text-sm text-slate transition hover:border-mist/70 hover:bg-white hover:text-ink" key={item.id} onClick={() => linkProjectActivity(item.molecule)} type="button">
                                 <span className="min-w-0">
