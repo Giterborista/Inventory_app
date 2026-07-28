@@ -441,18 +441,18 @@ function RowTable({
                   <td className="px-4 py-4 text-sm font-semibold text-ink">{row.totalScaledValue || "-"}</td>
                 ) : null}
                 <td className="px-4 py-4">
-                  <div className="flex items-center justify-end gap-2 whitespace-nowrap">
+                  <div className="grid grid-cols-[9.75rem_4rem_2rem] items-center justify-end gap-2 whitespace-nowrap">
                     {section === "OUTPUT" && !referenceProductOutput ? (
                       <button
-                        className="shrink-0 rounded-md px-2 py-2 text-xs font-semibold text-slate transition hover:bg-accent/10 hover:text-accent"
+                        className="rounded-md px-2 py-2 text-center text-xs font-semibold text-slate transition hover:bg-accent/10 hover:text-accent"
                         onClick={() => onSetMainOutput(row.id)}
                         type="button"
                       >
-                        Set as main
+                        Set as main output
                       </button>
-                    ) : null}
+                    ) : <span aria-hidden="true" />}
                     <button
-                      className="shrink-0 rounded-md px-2 py-2 text-xs font-semibold text-slate transition hover:bg-lab hover:text-accent"
+                      className="rounded-md px-2 py-2 text-center text-xs font-semibold text-slate transition hover:bg-lab hover:text-accent"
                       onClick={() => onOpenEditor(section, row)}
                       type="button"
                     >
@@ -468,7 +468,7 @@ function RowTable({
                       >
                         ×
                       </button>
-                    ) : null}
+                    ) : <span aria-hidden="true" />}
                   </div>
                 </td>
               </tr>
