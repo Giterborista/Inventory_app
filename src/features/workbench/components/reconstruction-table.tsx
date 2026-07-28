@@ -377,7 +377,7 @@ function RowTable({
             <th className="w-[12%] px-4 py-3">Amount</th>
             <th className="w-[10%] px-4 py-3">Unit</th>
             {showScaledColumn ? <th className="w-[14%] px-4 py-3">Scaled</th> : null}
-            <th className="w-[20%] px-4 py-3 text-right">Actions</th>
+            <th className="w-[24%] min-w-[17rem] whitespace-nowrap px-4 py-3 text-right">Actions</th>
           </tr>
         </thead>
         <tbody>
@@ -441,10 +441,10 @@ function RowTable({
                   <td className="px-4 py-4 text-sm font-semibold text-ink">{row.totalScaledValue || "-"}</td>
                 ) : null}
                 <td className="px-4 py-4">
-                  <div className="flex justify-end gap-2">
+                  <div className="flex items-center justify-end gap-2 whitespace-nowrap">
                     {section === "OUTPUT" && !referenceProductOutput ? (
                       <button
-                        className="rounded-md px-2 py-2 text-xs font-semibold text-slate transition hover:bg-accent/10 hover:text-accent"
+                        className="shrink-0 rounded-md px-2 py-2 text-xs font-semibold text-slate transition hover:bg-accent/10 hover:text-accent"
                         onClick={() => onSetMainOutput(row.id)}
                         type="button"
                       >
@@ -452,11 +452,11 @@ function RowTable({
                       </button>
                     ) : null}
                     <button
-                      className="rounded-md px-2 py-2 text-xs font-semibold text-slate transition hover:bg-lab hover:text-accent"
+                      className="shrink-0 rounded-md px-2 py-2 text-xs font-semibold text-slate transition hover:bg-lab hover:text-accent"
                       onClick={() => onOpenEditor(section, row)}
                       type="button"
                     >
-                      Edit details
+                      Edit
                     </button>
                     {!referenceProductOutput ? (
                       <button

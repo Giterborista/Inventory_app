@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 
+import { getReferenceProductRow } from "@/features/workbench/selectors";
 import type {
   MoleculeRecord,
   ProjectRecord,
@@ -12,6 +13,7 @@ type InterconnectionGraphProps = {
   project: ProjectRecord;
   visibleIds: Set<string> | null;
   onOpenMolecule: (moleculeId: string) => void;
+  onOpenRow: (moleculeId: string, row: ReconstructionRow) => void;
   showInputs: boolean;
   disconnectedActivityIds?: Set<string>;
 };
@@ -36,9 +38,6 @@ type LinkedEdge = {
   parentId: string;
   childId: string;
   row: ReconstructionRow | null;
-  labelX: number;
-  labelY: number;
-  targetY: number;
 };
 
 const ACTIVITY_WIDTH = 290;
@@ -107,6 +106,7 @@ export function InterconnectionGraph({
   project,
   visibleIds,
   onOpenMolecule,
+  onOpenRow,
   showInputs,
   disconnectedActivityIds = new Set(),
 }: InterconnectionGraphProps) {
@@ -173,14 +173,13 @@ export function InterconnectionGraph({
       const activity = activityById.get(id);
       if (!activity) return 0;
       const nextPath = new Set(path).add(id);
-      const ordinaryCount = showInputs
-        ? activity.rows.filter((row) => row.section === "INPUT" && !row.linkedMoleculeId).length
-        : 0;
+      const displayedInputCount = activity.rows.filter(
+        (row) => row.section === "INPUT" && (showInputs || Boolean(row.linkedMoleculeId)),
+      ).length;
       const childLinks = children.get(id) ?? [];
       const childHeights = childLinks.map((link) =>
         subtreeHeight(link.childMoleculeId, nextPath),
       );
-      const displayedInputCount = ordinaryCount + childLinks.length;
       const inputHeight = displayedInputCount
         ? displayedInputCount * FLOW_HEIGHT + (displayedInputCount - 1) * FLOW_NODE_GAP
         : 0;
@@ -188,8 +187,7 @@ export function InterconnectionGraph({
         ? childHeights.reduce((sum, value) => sum + value, 0) +
           (childHeights.length - 1) * FLOW_NODE_GAP
         : 0;
-      const visibleOutputs = activity.rows.filter((row) => row.section === "OUTPUT").length -
-        (incoming.has(id) ? 1 : 0);
+      const visibleOutputs = activity.rows.filter((row) => row.section === "OUTPUT").length;
       const outputHeight = visibleOutputs > 0
         ? visibleOutputs * FLOW_HEIGHT + (visibleOutputs - 1) * FLOW_NODE_GAP
         : 0;
@@ -223,43 +221,24 @@ export function InterconnectionGraph({
       };
       activityNodes.push(node);
 
-      const ordinaryInputs = showInputs
-        ? activity.rows.filter((row) => row.section === "INPUT" && !row.linkedMoleculeId)
-        : [];
       const childLinks = children.get(id) ?? [];
-      const linkedInputs = childLinks.map((link) => ({
-        link,
-        row: activity.rows.find(
-          (row) => row.id === link.sourceRowId || row.linkedMoleculeId === link.childMoleculeId,
-        ) ?? null,
-      }));
-      const displayedInputs = [
-        ...ordinaryInputs.map((row) => ({ link: null, row })),
-        ...linkedInputs,
-      ].sort((left, right) => {
-        const leftOrder = left.row?.order ?? left.link?.sortOrder ?? Number.MAX_SAFE_INTEGER;
-        const rightOrder = right.row?.order ?? right.link?.sortOrder ?? Number.MAX_SAFE_INTEGER;
-        return leftOrder - rightOrder;
-      });
+      const displayedInputs = activity.rows
+        .filter((row) => row.section === "INPUT" && (showInputs || Boolean(row.linkedMoleculeId)))
+        .sort((left, right) => left.order - right.order || left.name.localeCompare(right.name));
       const inputHeight = displayedInputs.length
         ? displayedInputs.length * FLOW_HEIGHT +
           (displayedInputs.length - 1) * FLOW_NODE_GAP
         : 0;
       const inputY = blockY + (blockHeight - inputHeight) / 2;
-      const linkedInputY = new Map<string, number>();
-      displayedInputs.forEach((input, index) => {
+      displayedInputs.forEach((row, index) => {
         const y = inputY + index * (FLOW_HEIGHT + FLOW_NODE_GAP);
-        if (input.link) {
-          linkedInputY.set(input.link.id, y);
-        } else if (input.row) {
-          flowNodes.push({
-            row: input.row,
-            ownerId: id,
-            input: true,
-            x: x - FLOW_GAP - FLOW_WIDTH,
-            y,
-          });
-        }
+        flowNodes.push({
+          row,
+          ownerId: id,
+          input: true,
+          x: x - FLOW_GAP - FLOW_WIDTH,
+          y,
+        });
       });
 
       const childEntries = childLinks.map((link) => ({
@@ -282,20 +261,14 @@ export function InterconnectionGraph({
           parentId: id,
           childId,
           row: sourceRow,
-          labelX: x - FLOW_GAP - FLOW_WIDTH,
-          labelY: linkedInputY.get(entry.link.id) ?? node.y + (ACTIVITY_HEIGHT - FLOW_HEIGHT) / 2,
-          targetY: clamp(
-            (linkedInputY.get(entry.link.id) ?? node.y) + FLOW_HEIGHT / 2,
-            node.y + 20,
-            node.y + ACTIVITY_HEIGHT - 20,
-          ),
         });
         placeActivity(childId, depth + 1, entryY, nextPath);
         entryY += entry.height + FLOW_NODE_GAP;
       });
 
-      const allOutputs = activity.rows.filter((row) => row.section === "OUTPUT");
-      const outputs = incoming.has(id) ? allOutputs.slice(1) : allOutputs;
+      const outputs = activity.rows
+        .filter((row) => row.section === "OUTPUT")
+        .sort((left, right) => left.order - right.order || left.name.localeCompare(right.name));
       const outputHeight = outputs.length
         ? outputs.length * FLOW_HEIGHT + (outputs.length - 1) * FLOW_NODE_GAP
         : 0;
@@ -322,13 +295,17 @@ export function InterconnectionGraph({
       }
     });
     const nodeById = new Map(activityNodes.map((node) => [node.activity.id, node]));
+    const flowNodeByKey = new Map(
+      flowNodes.map((node) => [`${node.ownerId}:${node.row.id}`, node]),
+    );
     const width =
       PADDING * 2 + FLOW_WIDTH * 2 + FLOW_GAP * 2 + ACTIVITY_WIDTH + maxDepth * STAGE_STEP;
-    const canvasHeight = Math.max(PREVIEW_HEIGHT, rootY - SUBTREE_GAP + PADDING);
+    const canvasHeight = Math.max(240, rootY - SUBTREE_GAP + PADDING);
     return {
       activityNodes,
       activityById: nodeById,
       flowNodes,
+      flowNodeByKey,
       linkedEdges,
       width,
       height: canvasHeight,
@@ -383,7 +360,7 @@ export function InterconnectionGraph({
     clone.setAttribute("xmlns", "http://www.w3.org/2000/svg");
     const theme = getComputedStyle(document.documentElement);
     const themeStyle = document.createElementNS("http://www.w3.org/2000/svg", "style");
-    themeStyle.textContent = `:root{--graph-bg:${theme.getPropertyValue("--graph-bg")};--panel:${theme.getPropertyValue("--panel")};--ink:${theme.getPropertyValue("--ink")};--muted:${theme.getPropertyValue("--muted")};--line:${theme.getPropertyValue("--line")};--graph-line:${theme.getPropertyValue("--graph-line")}}`;
+    themeStyle.textContent = `:root{--graph-bg:${theme.getPropertyValue("--graph-bg")};--panel:${theme.getPropertyValue("--panel")};--ink:${theme.getPropertyValue("--ink")};--muted:${theme.getPropertyValue("--muted")};--line:${theme.getPropertyValue("--line")};--graph-line:${theme.getPropertyValue("--graph-line")};--graph-input-fill:${theme.getPropertyValue("--graph-input-fill")};--graph-input-stroke:${theme.getPropertyValue("--graph-input-stroke")};--graph-input-text:${theme.getPropertyValue("--graph-input-text")};--graph-output-fill:${theme.getPropertyValue("--graph-output-fill")};--graph-output-stroke:${theme.getPropertyValue("--graph-output-stroke")};--graph-output-text:${theme.getPropertyValue("--graph-output-text")};--graph-input-line:${theme.getPropertyValue("--graph-input-line")};--graph-output-line:${theme.getPropertyValue("--graph-output-line")};--graph-activity-fill:${theme.getPropertyValue("--graph-activity-fill")}}`;
     clone.prepend(themeStyle);
     const link = document.createElement("a");
     link.href = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(new XMLSerializer().serializeToString(clone))}`;
@@ -453,6 +430,23 @@ export function InterconnectionGraph({
             }, 0);
           }}
         >
+          <div
+            className="theme-popover absolute right-3 top-3 z-10 flex items-center gap-4 rounded-sm border border-mist/70 px-3 py-2 text-[11px] font-semibold text-slate shadow-sm"
+            onPointerDown={(event) => event.stopPropagation()}
+          >
+            <span className="inline-flex items-center gap-1.5">
+              <span className="h-3 w-3 rounded-[2px] border" style={{ background: "var(--graph-input-fill)", borderColor: "var(--graph-input-stroke)" }} />
+              Input
+            </span>
+            <span className="inline-flex items-center gap-1.5">
+              <span className="h-3 w-3 rounded-[2px] border" style={{ background: "var(--graph-activity-fill)", borderColor: "var(--graph-line)" }} />
+              Activity
+            </span>
+            <span className="inline-flex items-center gap-1.5">
+              <span className="h-3 w-3 rounded-[2px] border" style={{ background: "var(--graph-output-fill)", borderColor: "var(--graph-output-stroke)" }} />
+              Output
+            </span>
+          </div>
           <svg
             ref={svgRef}
             width={graph.width}
@@ -465,14 +459,34 @@ export function InterconnectionGraph({
           >
             <defs>
               <marker
-                id="network-arrow"
+                id="network-arrow-input"
                 markerHeight="8"
                 markerWidth="8"
                 orient="auto"
                 refX="7"
                 refY="4"
               >
-                <path d="M0 0 8 4 0 8Z" fill="var(--muted)" />
+                <path d="M0 0 8 4 0 8Z" fill="var(--graph-input-line)" />
+              </marker>
+              <marker
+                id="network-arrow-output"
+                markerHeight="8"
+                markerWidth="8"
+                orient="auto"
+                refX="7"
+                refY="4"
+              >
+                <path d="M0 0 8 4 0 8Z" fill="var(--graph-output-line)" />
+              </marker>
+              <marker
+                id="network-arrow-link"
+                markerHeight="8"
+                markerWidth="8"
+                orient="auto"
+                refX="7"
+                refY="4"
+              >
+                <path d="M0 0 8 4 0 8Z" fill="var(--graph-line)" />
               </marker>
             </defs>
             <rect width={graph.width} height={graph.height} fill="var(--graph-bg)" />
@@ -493,40 +507,49 @@ export function InterconnectionGraph({
                     owner.y + ACTIVITY_HEIGHT - 20,
                   )
                 : flow.y + FLOW_HEIGHT / 2;
+              const midpoint = (x1 + x2) / 2;
               return (
                 <path
                   key={`flow-path:${flow.ownerId}:${flow.row.id}`}
-                  d={`M${x1} ${y1} C${(x1 + x2) / 2} ${y1},${(x1 + x2) / 2} ${y2},${x2 - (flow.input ? 7 : 0)} ${y2}`}
+                  d={`M${x1} ${y1} H${midpoint} V${y2} H${x2 - 7}`}
                   fill="none"
-                  markerEnd="url(#network-arrow)"
-                  stroke="var(--graph-line)"
+                  markerEnd={flow.input ? "url(#network-arrow-input)" : "url(#network-arrow-output)"}
+                  stroke={flow.input ? "var(--graph-input-line)" : "var(--graph-output-line)"}
                   strokeWidth="1.5"
                 />
               );
             })}
             {graph.linkedEdges.map((edge) => {
-              const parent = graph.activityById.get(edge.parentId);
               const child = graph.activityById.get(edge.childId);
-              if (!parent || !child) return null;
-              const childX = child.x + ACTIVITY_WIDTH;
-              const childY = child.y + ACTIVITY_HEIGHT / 2;
-              const labelY = edge.labelY + FLOW_HEIGHT / 2;
-              const labelRight = edge.labelX + FLOW_WIDTH;
-              const childBend = Math.max(44, (edge.labelX - childX) * 0.42);
-              const parentBend = Math.max(24, (parent.x - labelRight) * 0.45);
+              if (!child) return null;
+              const childOutput = getReferenceProductRow(child.activity);
+              const outputNode = childOutput
+                ? graph.flowNodeByKey.get(`${child.activity.id}:${childOutput.id}`)
+                : null;
+              const inputNode = edge.row
+                ? graph.flowNodeByKey.get(`${edge.parentId}:${edge.row.id}`)
+                : null;
+              if (!outputNode) return null;
+              const parent = graph.activityById.get(edge.parentId);
+              const x1 = outputNode.x + FLOW_WIDTH;
+              const y1 = outputNode.y + FLOW_HEIGHT / 2;
+              const x2 = inputNode?.x ?? parent?.x;
+              const y2 = inputNode
+                ? inputNode.y + FLOW_HEIGHT / 2
+                : parent
+                  ? parent.y + ACTIVITY_HEIGHT / 2
+                  : null;
+              if (x2 === undefined || y2 === null) return null;
+              const midpoint = (x1 + x2) / 2;
               return (
-                <g
+                <path
                   key={`linked-path:${edge.id}`}
+                  d={`M${x1} ${y1} H${midpoint} V${y2} H${x2 - 7}`}
                   fill="none"
-                  markerEnd="url(#network-arrow)"
+                  markerEnd="url(#network-arrow-link)"
                   stroke="var(--graph-line)"
                   strokeWidth="1.75"
-                >
-                  <path
-                    d={`M${childX} ${childY} C${childX + childBend} ${childY},${edge.labelX - childBend} ${labelY},${edge.labelX - 7} ${labelY}`}
-                  />
-                  <path d={`M${labelRight} ${labelY} C${labelRight + parentBend} ${labelY},${parent.x - parentBend} ${edge.targetY},${parent.x - 7} ${edge.targetY}`} />
-                </g>
+                />
               );
             })}
             {graph.flowNodes.map((flow) => {
@@ -534,8 +557,16 @@ export function InterconnectionGraph({
               return (
                 <g
                   key={`flow-node:${flow.ownerId}:${flow.row.id}`}
+                  aria-label={`Open ${flow.input ? "input" : "output"} ${flow.row.name || "unnamed flow"}`}
                   className="cursor-pointer"
-                  onClick={() => onOpenMolecule(flow.ownerId)}
+                  data-graph-kind={flow.input ? "input" : "output"}
+                  data-molecule-id={flow.ownerId}
+                  data-row-id={flow.row.id}
+                  onClick={() => onOpenRow(flow.ownerId, flow.row)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" || event.key === " ") onOpenRow(flow.ownerId, flow.row);
+                  }}
+                  onPointerDown={(event) => event.stopPropagation()}
                   role="button"
                   tabIndex={0}
                 >
@@ -545,13 +576,14 @@ export function InterconnectionGraph({
                     width={FLOW_WIDTH}
                     height={FLOW_HEIGHT}
                     rx="4"
-                    fill="var(--panel)"
-                    stroke="var(--line)"
+                    fill={flow.input ? "var(--graph-input-fill)" : "var(--graph-output-fill)"}
+                    stroke={flow.input ? "var(--graph-input-stroke)" : "var(--graph-output-stroke)"}
+                    strokeWidth="1.5"
                   />
                   <text
                     x={flow.x + 12}
                     y={flow.y + 18}
-                    fill="var(--ink)"
+                    fill={flow.input ? "var(--graph-input-text)" : "var(--graph-output-text)"}
                     fontSize="11"
                     fontWeight="700"
                   >
@@ -560,57 +592,11 @@ export function InterconnectionGraph({
                   <text
                     x={flow.x + 12}
                     y={flow.y + 52}
-                    fill="var(--muted)"
+                    fill={flow.input ? "var(--graph-input-text)" : "var(--graph-output-text)"}
                     fontSize="10"
+                    opacity="0.72"
                   >
                     {compact(flowAmount(flow.row), 30)}
-                  </text>
-                </g>
-              );
-            })}
-            {graph.linkedEdges.map((edge) => {
-              const child = graph.activityById.get(edge.childId);
-              if (!child) return null;
-              const referenceOutput = child.activity.rows.find(
-                (row) => row.section === "OUTPUT",
-              );
-              const label = edge.row?.name || referenceOutput?.name || child.activity.referenceProductName || child.activity.name;
-              const amount = edge.row ? flowAmount(edge.row) : referenceOutput ? flowAmount(referenceOutput) : "Main output";
-              const nameLines = wrapCompact(label, 31);
-              return (
-                <g
-                  key={`linked-node:${edge.id}`}
-                  className="cursor-pointer"
-                  onClick={() => onOpenMolecule(child.activity.id)}
-                  role="button"
-                  tabIndex={0}
-                >
-                  <rect
-                    x={edge.labelX}
-                    y={edge.labelY}
-                    width={FLOW_WIDTH}
-                    height={FLOW_HEIGHT}
-                    rx="4"
-                    fill="var(--panel)"
-                    stroke="var(--graph-line)"
-                    strokeWidth="1.5"
-                  />
-                  <text
-                    x={edge.labelX + 12}
-                    y={edge.labelY + 18}
-                    fill="var(--ink)"
-                    fontSize="11"
-                    fontWeight="700"
-                  >
-                    {nameLines.map((line, index) => <tspan key={`${line}:${index}`} x={edge.labelX + 12} dy={index ? 14 : 0}>{line}</tspan>)}
-                  </text>
-                  <text
-                    x={edge.labelX + 12}
-                    y={edge.labelY + 52}
-                    fill="var(--muted)"
-                    fontSize="10"
-                  >
-                    {compact(amount, 30)}
                   </text>
                 </g>
               );
@@ -621,7 +607,10 @@ export function InterconnectionGraph({
               return (
                 <g
                   key={node.activity.id}
+                  aria-label={`Open activity ${activityTitle(node.activity)}`}
                   className="cursor-pointer"
+                  data-graph-kind="activity"
+                  data-molecule-id={node.activity.id}
                   onClick={() => {
                     if (!dragRef.current?.moved) onOpenMolecule(node.activity.id);
                   }}
@@ -629,6 +618,7 @@ export function InterconnectionGraph({
                     if (event.key === "Enter" || event.key === " ")
                       onOpenMolecule(node.activity.id);
                   }}
+                  onPointerDown={(event) => event.stopPropagation()}
                   role="button"
                   tabIndex={0}
                 >
@@ -638,7 +628,7 @@ export function InterconnectionGraph({
                   width={ACTIVITY_WIDTH}
                   height={ACTIVITY_HEIGHT}
                   rx="5"
-                  fill="var(--panel)"
+                  fill="var(--graph-activity-fill)"
                   stroke={disconnected ? "var(--alert)" : node.activity.topLevel ? "var(--ink)" : "var(--graph-line)"}
                   strokeWidth={disconnected || node.activity.topLevel ? 2 : 1.5}
                 />

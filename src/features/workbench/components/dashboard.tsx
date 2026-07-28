@@ -9,7 +9,7 @@ import { ProjectChecksDrawer, type ProjectChecksFilter } from "@/features/workbe
 import { ThemeToggle } from "@/features/workbench/components/theme-toggle";
 import { getHierarchyVisibleIds } from "@/features/workbench/selectors";
 import type { ProjectSearchResult, ProjectValidationIssue } from "@/features/workbench/selectors";
-import type { MoleculeRecord, ProjectRecord } from "@/features/workbench/types";
+import type { MoleculeRecord, ProjectRecord, ReconstructionRow } from "@/features/workbench/types";
 
 type DashboardProps = {
   project: ProjectRecord;
@@ -27,6 +27,7 @@ type DashboardProps = {
   onSearchQueryChange: (value: string) => void;
   onUpdateProjectName: (value: string) => void;
   onOpenMolecule: (moleculeId: string) => void;
+  onOpenInventoryRow: (moleculeId: string, row: ReconstructionRow) => void;
   onCreateParentMolecule: (childMoleculeId: string) => void;
   onCreateMolecule: (parentMoleculeId?: string) => void;
   onOpenProjectJson: (file: File) => void;
@@ -232,6 +233,7 @@ export function Dashboard({
   onSearchQueryChange,
   onUpdateProjectName,
   onOpenMolecule,
+  onOpenInventoryRow,
   onCreateParentMolecule,
   onCreateMolecule,
   onOpenProjectJson,
@@ -493,7 +495,14 @@ export function Dashboard({
                 visibleIds={visibleIds}
               />
             ) : (
-              <InterconnectionGraph disconnectedActivityIds={disconnectedActivityIds} onOpenMolecule={onOpenMolecule} project={project} showInputs={showAllIngredients} visibleIds={visibleIds} />
+              <InterconnectionGraph
+                disconnectedActivityIds={disconnectedActivityIds}
+                onOpenMolecule={onOpenMolecule}
+                onOpenRow={onOpenInventoryRow}
+                project={project}
+                showInputs={showAllIngredients}
+                visibleIds={visibleIds}
+              />
             )}
           </section>
 

@@ -245,6 +245,23 @@ export function WorkbenchApp() {
     });
   };
 
+  const openInventoryRow = (moleculeId: string, row: ReconstructionRow) => {
+    setAutoOpenRowEditorSection(null);
+    setPendingSearchFocus({
+      activityId: moleculeId,
+      request: {
+        key: Date.now(),
+        kind: "row",
+        section: row.section,
+        rowId: row.id,
+        panel: "details",
+      },
+    });
+    applyStateChange((current) => selectMolecule(ensureLinkedObjectReferenceOutputs(current), moleculeId), {
+      markDirty: false,
+    });
+  };
+
   const openProjectIssue = (issue: ProjectValidationIssue) => {
     setPendingProjectIssue(issue);
     const targetActivityId = issue.target.activityId ?? issue.activityId;
@@ -496,6 +513,7 @@ export function WorkbenchApp() {
           isExportingProjectPdf={isExportingProjectPdf}
           onCreateMolecule={(parentMoleculeId) => openCreateDialog(parentMoleculeId)}
           onNewProject={createNewProject}
+          onOpenInventoryRow={openInventoryRow}
           onOpenMolecule={openMolecule}
           onOpenSearchResult={openProjectSearchResult}
           onStartTutorial={() => void startTutorial()}
