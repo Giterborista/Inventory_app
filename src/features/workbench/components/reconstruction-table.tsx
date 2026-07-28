@@ -41,6 +41,7 @@ type ReconstructionTableProps = {
   onApplyPasDefaults: (profile: PasProfile) => void;
   onSaveRow: (section: ReconstructionSection, values: Partial<ReconstructionRow>, rowId?: string) => void;
   onRescale: () => void;
+  onRemoveScaling: () => void;
   onUpdateScaleField: (field: "scaleReferenceAmount" | "scaleTargetAmount" | "scaleUnit", value: string) => void;
   autoOpenSection?: ReconstructionSection | null;
   onAutoOpenHandled?: () => void;
@@ -488,6 +489,7 @@ export function ReconstructionTable({
   onImportActivityFromFile,
   onSaveRow,
   onRescale,
+  onRemoveScaling,
   onUpdateScaleField,
   autoOpenSection,
   onAutoOpenHandled,
@@ -673,6 +675,17 @@ export function ReconstructionTable({
               <label className="block w-28"><span className="text-xs text-slate">Target</span><input aria-invalid={targetAmount === null || targetAmount <= 0} className="mt-1 h-9 w-full rounded-sm border border-mist bg-white px-3 text-sm text-ink outline-none focus:border-slate" inputMode="decimal" onChange={(event) => onUpdateScaleField("scaleTargetAmount", event.target.value)} value={molecule.scaleTargetAmount} /></label>
               <label className="block w-24"><span className="text-xs text-slate">Unit</span><input className="mt-1 h-9 w-full rounded-sm border border-mist bg-white px-3 text-sm text-ink outline-none focus:border-slate" onChange={(event) => onUpdateScaleField("scaleUnit", event.target.value)} value={molecule.scaleUnit} /></label>
               <button className="h-9 rounded-sm border border-mist px-3 text-xs font-semibold text-ink transition hover:bg-lab disabled:cursor-not-allowed disabled:opacity-40" disabled={!scaleValid} onClick={onRescale} type="button">Apply scaling</button>
+              <button
+                className="h-9 rounded-sm border border-alert/45 bg-alert/10 px-3 text-xs font-semibold text-alert transition hover:border-alert/65 hover:bg-alert/15 disabled:cursor-not-allowed disabled:opacity-40"
+                disabled={!molecule.scaleReferenceAmount && !molecule.scaleTargetAmount && !molecule.scaleUnit && !molecule.rows.some((row) => row.totalScaledValue || row.scaledUnit)}
+                onClick={() => {
+                  onRemoveScaling();
+                  setScaleOpen(false);
+                }}
+                type="button"
+              >
+                Remove scaling
+              </button>
               {!scaleValid ? <span className="pb-2 text-xs text-alert">Enter positive amounts and a unit.</span> : null}
             </div>
           ) : null}

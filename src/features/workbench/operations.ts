@@ -1736,6 +1736,20 @@ export function rescaleMoleculeRows(state: WorkbenchState, moleculeId: string): 
   }));
 }
 
+export function removeMoleculeScaling(state: WorkbenchState, moleculeId: string): WorkbenchState {
+  return updateOneMolecule(state, moleculeId, (molecule) => ({
+    ...molecule,
+    scaleReferenceAmount: "",
+    scaleTargetAmount: "",
+    scaleUnit: "",
+    rows: molecule.rows.map((row) => ({
+      ...row,
+      totalScaledValue: "",
+      scaledUnit: "",
+    })),
+  }));
+}
+
 export function applyPasDefaults(
   state: WorkbenchState,
   moleculeId: string,

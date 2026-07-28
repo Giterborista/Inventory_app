@@ -18,6 +18,7 @@ import {
   ensureLinkedObjectReferenceOutput,
   ensureLinkedObjectReferenceOutputs,
   importMoleculeSubtree,
+  removeMoleculeScaling,
   rescaleMoleculeRows,
   saveReconstructionRow,
   selectMolecule,
@@ -458,6 +459,9 @@ export function WorkbenchApp() {
           onOpenMoleculeForFix={openMoleculeForFix}
           onRescaleRows={() =>
             applyStateChange((current) => rescaleMoleculeRows(current, selectedMolecule.id))
+          }
+          onRemoveScaling={() =>
+            applyStateChange((current) => removeMoleculeScaling(current, selectedMolecule.id))
           }
           onSaveProjectJson={downloadProjectJson}
           onSaveRow={(section, values, rowId) =>

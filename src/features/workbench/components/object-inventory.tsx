@@ -63,6 +63,7 @@ type ObjectInventoryProps = {
   onImportActivityFromFile: (file: File, rowId: string, values: Partial<ReconstructionRow> & { section: ReconstructionSection }) => Promise<void>;
   onApplyPasDefaults: (profile: PasProfile) => void;
   onRescaleRows: () => void;
+  onRemoveScaling: () => void;
   autoOpenRowEditor?: ReconstructionSection | null;
   onAutoOpenRowEditorHandled?: () => void;
   projectIssueFocus?: ProjectValidationIssue | null;
@@ -111,6 +112,7 @@ export function ObjectInventory({
   onImportActivityFromFile,
   onApplyPasDefaults,
   onRescaleRows,
+  onRemoveScaling,
   autoOpenRowEditor,
   onAutoOpenRowEditorHandled,
   projectIssueFocus,
@@ -320,6 +322,7 @@ export function ObjectInventory({
                 onDeleteRow={onDeleteRow}
                 onOpenMolecule={onOpenMolecule}
                 onRescale={onRescaleRows}
+                onRemoveScaling={onRemoveScaling}
                 onSaveRow={onSaveRow}
                 onUpdateScaleField={(field, value) => onUpdateMoleculeField(field, value)}
                 project={project}
