@@ -237,13 +237,6 @@ export function getMoleculeInventoryReviewIssues(
     issues.push({ label: "Add the first input", state: "warning", target: "add-input", section: "INPUT" });
   }
 
-  const documentationComplete = Boolean(
-    molecule.documentation.referenceAndScope.trim() && molecule.documentation.calculationNotes.trim(),
-  );
-  if (!documentationComplete) {
-    issues.push({ label: "Add activity context and traceability", state: "warning", target: "documentation" });
-  }
-
   return issues.filter(
     (issue, index, allIssues) =>
       allIssues.findIndex(
