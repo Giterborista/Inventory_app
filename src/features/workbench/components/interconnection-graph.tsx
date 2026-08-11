@@ -51,9 +51,39 @@ const LANE_PADDING = 16;
 const STAGE_STEP = ACTIVITY_WIDTH + FLOW_WIDTH * 2 + FLOW_GAP * 3;
 const PADDING = 48;
 const PREVIEW_HEIGHT = 800;
+const MAX_EXPORT_DIMENSION = 12_000;
+const MAX_EXPORT_PIXELS = 24_000_000;
+
+export function pngExportScale(width: number, height: number, activityCount: number) {
+  const preferredScale = activityCount <= 2 ? 1 : activityCount <= 8 ? 1.5 : 2;
+  const dimensionScale = Math.min(
+    MAX_EXPORT_DIMENSION / Math.max(width, 1),
+    MAX_EXPORT_DIMENSION / Math.max(height, 1),
+  );
+  const pixelScale = Math.sqrt(MAX_EXPORT_PIXELS / Math.max(width * height, 1));
+  return Math.max(0.1, Math.min(preferredScale, dimensionScale, pixelScale));
+}
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(Math.max(value, min), max);
+}
+function graphContentBounds(svg: SVGSVGElement) {
+  const padding = 24;
+  const elements = svg.querySelectorAll<SVGGraphicsElement>("g[data-graph-kind], path[data-graph-edge]");
+  const boxes = Array.from(elements, (element) => element.getBBox());
+  if (!boxes.length) {
+    return { x: 0, y: 0, width: Number(svg.getAttribute("width")) || 1, height: Number(svg.getAttribute("height")) || 1 };
+  }
+  const minX = Math.min(...boxes.map((box) => box.x));
+  const minY = Math.min(...boxes.map((box) => box.y));
+  const maxX = Math.max(...boxes.map((box) => box.x + box.width));
+  const maxY = Math.max(...boxes.map((box) => box.y + box.height));
+  return {
+    x: minX - padding,
+    y: minY - padding,
+    width: maxX - minX + padding * 2,
+    height: maxY - minY + padding * 2,
+  };
 }
 function compact(value: string, max = 29) {
   const clean = value.trim() || "Untitled";
@@ -350,25 +380,56 @@ export function InterconnectionGraph({
     fitView();
   }, [graph.height, graph.width]);
 
-  const downloadImage = () => {
+  const downloadImage = async () => {
     const svg = svgRef.current;
     if (!svg) return;
+    const bounds = graphContentBounds(svg);
     const clone = svg.cloneNode(true) as SVGSVGElement;
     clone.style.removeProperty("transform");
-    clone.setAttribute("width", String(graph.width));
-    clone.setAttribute("height", String(graph.height));
+    clone.setAttribute("width", String(bounds.width));
+    clone.setAttribute("height", String(bounds.height));
+    clone.setAttribute("viewBox", `${bounds.x} ${bounds.y} ${bounds.width} ${bounds.height}`);
     clone.setAttribute("xmlns", "http://www.w3.org/2000/svg");
     const theme = getComputedStyle(document.documentElement);
     const themeStyle = document.createElementNS("http://www.w3.org/2000/svg", "style");
-    themeStyle.textContent = `:root{--graph-bg:${theme.getPropertyValue("--graph-bg")};--panel:${theme.getPropertyValue("--panel")};--ink:${theme.getPropertyValue("--ink")};--muted:${theme.getPropertyValue("--muted")};--line:${theme.getPropertyValue("--line")};--graph-line:${theme.getPropertyValue("--graph-line")};--graph-input-fill:${theme.getPropertyValue("--graph-input-fill")};--graph-input-stroke:${theme.getPropertyValue("--graph-input-stroke")};--graph-input-text:${theme.getPropertyValue("--graph-input-text")};--graph-output-fill:${theme.getPropertyValue("--graph-output-fill")};--graph-output-stroke:${theme.getPropertyValue("--graph-output-stroke")};--graph-output-text:${theme.getPropertyValue("--graph-output-text")};--graph-input-line:${theme.getPropertyValue("--graph-input-line")};--graph-output-line:${theme.getPropertyValue("--graph-output-line")};--graph-activity-fill:${theme.getPropertyValue("--graph-activity-fill")}}`;
+    themeStyle.textContent = `:root{--graph-bg:${theme.getPropertyValue("--graph-bg")};--panel:${theme.getPropertyValue("--panel")};--ink:${theme.getPropertyValue("--ink")};--muted:${theme.getPropertyValue("--muted")};--line:${theme.getPropertyValue("--line")};--alert:${theme.getPropertyValue("--alert")};--graph-line:${theme.getPropertyValue("--graph-line")};--graph-input-fill:${theme.getPropertyValue("--graph-input-fill")};--graph-input-stroke:${theme.getPropertyValue("--graph-input-stroke")};--graph-input-text:${theme.getPropertyValue("--graph-input-text")};--graph-output-fill:${theme.getPropertyValue("--graph-output-fill")};--graph-output-stroke:${theme.getPropertyValue("--graph-output-stroke")};--graph-output-text:${theme.getPropertyValue("--graph-output-text")};--graph-input-line:${theme.getPropertyValue("--graph-input-line")};--graph-output-line:${theme.getPropertyValue("--graph-output-line")};--graph-activity-fill:${theme.getPropertyValue("--graph-activity-fill")}}`;
     clone.prepend(themeStyle);
-    const link = document.createElement("a");
-    link.href = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(new XMLSerializer().serializeToString(clone))}`;
-    link.download = `${project.name || "project"}-inventory-network.svg`
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, "-")
-      .replace(/^-+|-+$/g, "");
-    link.click();
+
+    const scale = pngExportScale(bounds.width, bounds.height, graph.activityNodes.length);
+    const exportWidth = Math.max(1, Math.round(bounds.width * scale));
+    const exportHeight = Math.max(1, Math.round(bounds.height * scale));
+    const svgBlob = new Blob([new XMLSerializer().serializeToString(clone)], {
+      type: "image/svg+xml;charset=utf-8",
+    });
+    const svgUrl = URL.createObjectURL(svgBlob);
+
+    try {
+      const image = new Image();
+      image.src = svgUrl;
+      await image.decode();
+
+      const canvas = document.createElement("canvas");
+      canvas.width = exportWidth;
+      canvas.height = exportHeight;
+      const context = canvas.getContext("2d");
+      if (!context) return;
+      context.drawImage(image, 0, 0, exportWidth, exportHeight);
+
+      const pngBlob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/png"));
+      if (!pngBlob) return;
+      const pngUrl = URL.createObjectURL(pngBlob);
+      const link = document.createElement("a");
+      const fileName = `${project.name || "project"}-inventory-network`
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-+|-+$/g, "");
+      link.href = pngUrl;
+      link.download = `${fileName}.png`;
+      link.click();
+      window.setTimeout(() => URL.revokeObjectURL(pngUrl), 0);
+    } finally {
+      URL.revokeObjectURL(svgUrl);
+    }
   };
 
   return (
@@ -511,6 +572,7 @@ export function InterconnectionGraph({
               return (
                 <path
                   key={`flow-path:${flow.ownerId}:${flow.row.id}`}
+                  data-graph-edge
                   d={`M${x1} ${y1} H${midpoint} V${y2} H${x2 - 7}`}
                   fill="none"
                   markerEnd={flow.input ? "url(#network-arrow-input)" : "url(#network-arrow-output)"}
@@ -544,6 +606,7 @@ export function InterconnectionGraph({
               return (
                 <path
                   key={`linked-path:${edge.id}`}
+                  data-graph-edge
                   d={`M${x1} ${y1} H${midpoint} V${y2} H${x2 - 7}`}
                   fill="none"
                   markerEnd="url(#network-arrow-link)"
