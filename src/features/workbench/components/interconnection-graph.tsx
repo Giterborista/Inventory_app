@@ -111,7 +111,11 @@ function activityTitle(activity: MoleculeRecord) {
   return activity.name || "Untitled activity";
 }
 function flowAmount(row: ReconstructionRow) {
-  return `${row.totalValue || "Amount missing"}${row.unit ? ` ${row.unit}` : ""}`;
+  const amount = row.totalScaledValue.trim() || row.totalValue.trim() || "Amount missing";
+  const unit = row.totalScaledValue.trim()
+    ? row.scaledUnit.trim() || row.unit.trim()
+    : row.unit.trim();
+  return `${amount}${unit ? ` ${unit}` : ""}`;
 }
 
 function GraphButton({
