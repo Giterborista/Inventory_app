@@ -38,6 +38,8 @@ type LinkedEdge = {
   parentId: string;
   childId: string;
   row: ReconstructionRow | null;
+  laneIndex: number;
+  laneCount: number;
 };
 
 const ACTIVITY_WIDTH = 290;
@@ -66,6 +68,14 @@ export function pngExportScale(width: number, height: number, activityCount: num
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(Math.max(value, min), max);
+}
+
+function routingLane(startX: number, endX: number, index: number, count: number) {
+  const direction = endX >= startX ? 1 : -1;
+  const span = Math.abs(endX - startX);
+  const inset = Math.min(12, span / 4);
+  const usable = Math.max(0, span - inset * 2);
+  return startX + direction * (inset + usable * ((index + 1) / (count + 1)));
 }
 function graphContentBounds(svg: SVGSVGElement) {
   const padding = 24;
@@ -184,21 +194,27 @@ export function InterconnectionGraph({
       .sort((a, b) => a.rootOrder - b.rootOrder || a.name.localeCompare(b.name));
     if (!roots.length && activities[0]) roots.push(activities[0]);
 
-    const depthMemo = new Map<string, number>();
-    const branchDepth = (id: string, path = new Set<string>()): number => {
-      if (path.has(id)) return 0;
-      if (depthMemo.has(id)) return depthMemo.get(id)!;
-      const nextPath = new Set(path).add(id);
-      const depth = Math.max(
-        0,
-        ...(children.get(id) ?? []).map(
-          (link) => 1 + branchDepth(link.childMoleculeId, nextPath),
-        ),
-      );
-      depthMemo.set(id, depth);
-      return depth;
-    };
-    const maxDepth = Math.max(0, ...roots.map((root) => branchDepth(root.id)));
+    // Assign stages across the complete DAG so reused suppliers always remain
+    // to the left of every activity that consumes their main output.
+    const depthById = new Map<string, number>();
+    roots.forEach((root) => depthById.set(root.id, 0));
+    for (let iteration = 0; iteration < activities.length; iteration += 1) {
+      let changed = false;
+      links.forEach((link) => {
+        const parentDepth = depthById.get(link.parentMoleculeId);
+        if (parentDepth === undefined) return;
+        const nextDepth = parentDepth + 1;
+        if (nextDepth > (depthById.get(link.childMoleculeId) ?? -1)) {
+          depthById.set(link.childMoleculeId, nextDepth);
+          changed = true;
+        }
+      });
+      if (!changed) break;
+    }
+    activities.forEach((activity) => {
+      if (!depthById.has(activity.id)) depthById.set(activity.id, 0);
+    });
+    const maxDepth = Math.max(0, ...depthById.values());
 
     const heightMemo = new Map<string, number>();
     const subtreeHeight = (id: string, path = new Set<string>()): number => {
@@ -244,10 +260,11 @@ export function InterconnectionGraph({
       if (!activity || path.has(id) || placed.has(id)) return;
       placed.add(id);
       const blockHeight = subtreeHeight(id);
-      const x = PADDING + FLOW_WIDTH + FLOW_GAP + (maxDepth - depth) * STAGE_STEP;
+      const stageDepth = depthById.get(id) ?? depth;
+      const x = PADDING + FLOW_WIDTH + FLOW_GAP + (maxDepth - stageDepth) * STAGE_STEP;
       const node: ActivityNode = {
         activity,
-        depth,
+        depth: stageDepth,
         x,
         blockY,
         blockHeight,
@@ -295,6 +312,8 @@ export function InterconnectionGraph({
           parentId: id,
           childId,
           row: sourceRow,
+          laneIndex: 0,
+          laneCount: 1,
         });
         placeActivity(childId, depth + 1, entryY, nextPath);
         entryY += entry.height + FLOW_NODE_GAP;
@@ -332,6 +351,26 @@ export function InterconnectionGraph({
     const flowNodeByKey = new Map(
       flowNodes.map((node) => [`${node.ownerId}:${node.row.id}`, node]),
     );
+    const linkedEdgeGroups = new Map<string, LinkedEdge[]>();
+    linkedEdges.forEach((edge) => {
+      const child = nodeById.get(edge.childId);
+      const parent = nodeById.get(edge.parentId);
+      const key = `${child?.x ?? 0}:${parent?.x ?? 0}`;
+      linkedEdgeGroups.set(key, [...(linkedEdgeGroups.get(key) ?? []), edge]);
+    });
+    linkedEdgeGroups.forEach((edges) => {
+      edges.sort((left, right) => {
+        const leftInput = left.row ? flowNodeByKey.get(`${left.parentId}:${left.row.id}`) : null;
+        const rightInput = right.row ? flowNodeByKey.get(`${right.parentId}:${right.row.id}`) : null;
+        const leftY = leftInput?.y ?? nodeById.get(left.parentId)?.y ?? 0;
+        const rightY = rightInput?.y ?? nodeById.get(right.parentId)?.y ?? 0;
+        return leftY - rightY || left.id.localeCompare(right.id);
+      });
+      edges.forEach((edge, index) => {
+        edge.laneIndex = index;
+        edge.laneCount = edges.length;
+      });
+    });
     const width =
       PADDING * 2 + FLOW_WIDTH * 2 + FLOW_GAP * 2 + ACTIVITY_WIDTH + maxDepth * STAGE_STEP;
     const canvasHeight = Math.max(240, rootY - SUBTREE_GAP + PADDING);
@@ -528,7 +567,7 @@ export function InterconnectionGraph({
                 markerHeight="8"
                 markerWidth="8"
                 orient="auto"
-                refX="7"
+                refX="8"
                 refY="4"
               >
                 <path d="M0 0 8 4 0 8Z" fill="var(--graph-input-line)" />
@@ -538,7 +577,7 @@ export function InterconnectionGraph({
                 markerHeight="8"
                 markerWidth="8"
                 orient="auto"
-                refX="7"
+                refX="8"
                 refY="4"
               >
                 <path d="M0 0 8 4 0 8Z" fill="var(--graph-output-line)" />
@@ -548,7 +587,7 @@ export function InterconnectionGraph({
                 markerHeight="8"
                 markerWidth="8"
                 orient="auto"
-                refX="7"
+                refX="8"
                 refY="4"
               >
                 <path d="M0 0 8 4 0 8Z" fill="var(--graph-line)" />
@@ -558,26 +597,26 @@ export function InterconnectionGraph({
             {graph.flowNodes.map((flow) => {
               const owner = graph.activityById.get(flow.ownerId);
               if (!owner) return null;
+              const siblings = graph.flowNodes.filter(
+                (candidate) => candidate.ownerId === flow.ownerId && candidate.input === flow.input,
+              );
+              const siblingIndex = siblings.findIndex((candidate) => candidate.row.id === flow.row.id);
+              const ownerPortY = owner.y + 18 +
+                (ACTIVITY_HEIGHT - 36) * ((siblingIndex + 1) / (siblings.length + 1));
               const x1 = flow.input
                 ? flow.x + FLOW_WIDTH
                 : owner.x + ACTIVITY_WIDTH;
               const y1 = flow.input
                 ? flow.y + FLOW_HEIGHT / 2
-                : owner.y + ACTIVITY_HEIGHT / 2;
+                : ownerPortY;
               const x2 = flow.input ? owner.x : flow.x;
-              const y2 = flow.input
-                ? clamp(
-                    flow.y + FLOW_HEIGHT / 2,
-                    owner.y + 20,
-                    owner.y + ACTIVITY_HEIGHT - 20,
-                  )
-                : flow.y + FLOW_HEIGHT / 2;
-              const midpoint = (x1 + x2) / 2;
+              const y2 = flow.input ? ownerPortY : flow.y + FLOW_HEIGHT / 2;
+              const laneX = routingLane(x1, x2, siblingIndex, siblings.length);
               return (
                 <path
                   key={`flow-path:${flow.ownerId}:${flow.row.id}`}
                   data-graph-edge
-                  d={`M${x1} ${y1} H${midpoint} V${y2} H${x2 - 7}`}
+                  d={`M${x1} ${y1} H${laneX} V${y2} H${x2}`}
                   fill="none"
                   markerEnd={flow.input ? "url(#network-arrow-input)" : "url(#network-arrow-output)"}
                   stroke={flow.input ? "var(--graph-input-line)" : "var(--graph-output-line)"}
@@ -606,17 +645,20 @@ export function InterconnectionGraph({
                   ? parent.y + ACTIVITY_HEIGHT / 2
                   : null;
               if (x2 === undefined || y2 === null) return null;
-              const midpoint = (x1 + x2) / 2;
+              const laneX = routingLane(x1, x2, edge.laneIndex, edge.laneCount);
+              const path = `M${x1} ${y1} H${laneX} V${y2} H${x2}`;
               return (
-                <path
-                  key={`linked-path:${edge.id}`}
-                  data-graph-edge
-                  d={`M${x1} ${y1} H${midpoint} V${y2} H${x2 - 7}`}
-                  fill="none"
-                  markerEnd="url(#network-arrow-link)"
-                  stroke="var(--graph-line)"
-                  strokeWidth="1.75"
-                />
+                <g key={`linked-path:${edge.id}`}>
+                  <path d={path} fill="none" stroke="var(--graph-bg)" strokeWidth="5.5" />
+                  <path
+                    data-graph-edge
+                    d={path}
+                    fill="none"
+                    markerEnd="url(#network-arrow-link)"
+                    stroke="var(--graph-line)"
+                    strokeWidth="1.75"
+                  />
+                </g>
               );
             })}
             {graph.flowNodes.map((flow) => {
