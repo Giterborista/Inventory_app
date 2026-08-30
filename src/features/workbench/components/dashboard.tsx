@@ -289,7 +289,7 @@ export function Dashboard({
   return (
     <main className="min-h-screen bg-transparent px-3 py-3 text-ink sm:px-4 sm:py-4" data-tutorial="dashboard-page">
       <div className="mx-auto grid max-w-[112rem] gap-4 md:grid-cols-[17rem_minmax(0,1fr)]">
-        <aside className="theme-sidebar h-fit overflow-hidden rounded-xl border border-mist/40 md:sticky md:top-4 md:h-[calc(100vh-2rem)] md:self-start">
+        <aside className="theme-sidebar flex h-fit flex-col overflow-hidden rounded-xl border border-mist/40 md:sticky md:top-4 md:h-[calc(100vh-2rem)] md:self-start">
           <div className="border-b border-mist/70 p-4" data-tutorial="sidebar-brand">
             <div className="flex items-center justify-between gap-3">
               <div className="flex min-w-0 items-center gap-3">
@@ -323,6 +323,16 @@ export function Dashboard({
 
           <div className="mx-3 px-3 py-2 text-[11px] leading-5 text-slate/70" data-tutorial="sidebar-save-status">
             {saveStatusLabel}
+          </div>
+
+          <div className="mt-auto border-t border-mist/70 px-6 py-4 text-[11px] leading-5 text-slate/70">
+            <span>Contact: </span>
+            <a
+              className="transition hover:text-ink hover:underline"
+              href="mailto:francesco.barilli@empa.ch"
+            >
+              francesco.barilli@empa.ch
+            </a>
           </div>
 
         </aside>
