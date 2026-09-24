@@ -488,7 +488,7 @@ export function Dashboard({
                   </div>
                 )}
               </div>
-            ) : activeView === "hierarchy" ? (
+            ) : activeView === "hierarchy" || !hasActivities ? (
               <HierarchyTree
                 onCreateParentMolecule={onCreateParentMolecule}
                 onCreateTopLevelMolecule={() => onCreateMolecule()}
