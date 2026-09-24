@@ -7,3 +7,5 @@ export const appEdition: AppEdition = configuredEdition === "evidence" ? "eviden
 export const appFeatures = {
   evidenceLedger: appEdition === "evidence",
 } as const;
+
+export const appBrandBadgeColorClass = appEdition === "evidence" ? "bg-[#247a65]" : "bg-accent";
