@@ -1,5 +1,5 @@
 import { normalizeText } from "@/features/workbench/state-utils";
-import { areUnitsEquivalent, unitMismatchMessage } from "@/features/workbench/units";
+import { areUnitsEquivalent, convertMassToKg, unitMismatchMessage } from "@/features/workbench/units";
 import type {
   EvidenceRecord,
   ImportWarning,
@@ -147,6 +147,27 @@ export function getReferenceProductRow(molecule: MoleculeRecord) {
     ) ??
     null
   );
+}
+
+export function getEffectiveMainOutputBasis(molecule: MoleculeRecord) {
+  const row = getReferenceProductRow(molecule);
+  if (!row) return null;
+  const scaled = Boolean(row.totalScaledValue.trim() && row.scaledUnit.trim());
+  const rawAmount = (scaled ? row.totalScaledValue : row.totalValue).replace(",", ".").trim();
+  const amount = rawAmount ? Number(rawAmount) : Number.NaN;
+  return {
+    row,
+    amount: Number.isFinite(amount) ? amount : null,
+    unit: scaled ? row.scaledUnit : row.unit,
+    scaled,
+  };
+}
+
+export function hasOneKilogramMainOutput(molecule: MoleculeRecord) {
+  const basis = getEffectiveMainOutputBasis(molecule);
+  if (!basis || basis.amount === null) return false;
+  const kilograms = convertMassToKg(basis.amount, basis.unit);
+  return kilograms !== null && Math.abs(kilograms - 1) < 1e-9;
 }
 
 export function hasReferenceOutput(molecule: MoleculeRecord | null) {

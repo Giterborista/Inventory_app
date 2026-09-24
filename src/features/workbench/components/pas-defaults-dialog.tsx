@@ -1,19 +1,17 @@
 "use client";
 
+import { createPortal } from "react-dom";
+
 import { PAS_PROFILE_OPTIONS, type PasProfile } from "@/features/workbench/pas-defaults";
 
 type PasDefaultsDialogProps = {
   open: boolean;
-  referenceAmount: string;
-  scaleUnit: string;
   onClose: () => void;
   onApply: (profile: PasProfile) => void;
 };
 
 export function PasDefaultsDialog({
   open,
-  referenceAmount,
-  scaleUnit,
   onClose,
   onApply,
 }: PasDefaultsDialogProps) {
@@ -21,7 +19,7 @@ export function PasDefaultsDialog({
     return null;
   }
 
-  return (
+  return createPortal(
     <div className="fixed inset-0 z-[60] flex items-start justify-center overflow-y-auto bg-ink/35 px-4 py-10 backdrop-blur-sm">
       <div
         aria-labelledby="pas-defaults-title"
@@ -31,11 +29,12 @@ export function PasDefaultsDialog({
       >
         <div className="flex items-start justify-between gap-4">
           <div>
-            <div className="section-title">Advanced proxy tool</div>
-            <h2 className="mt-2 text-[1.7rem] font-semibold text-ink" id="pas-defaults-title">Apply PAS utility and waste estimates</h2>
+            <div className="section-title">PAS input values</div>
+            <h2 className="mt-2 text-[1.7rem] font-semibold text-ink" id="pas-defaults-title">Apply PAS inputs and waste outputs</h2>
             <p className="mt-2 max-w-2xl text-sm leading-6 text-slate">
-              Create or update estimated rows for electricity, heat, steam, wastewater treatment, and hazardous waste incineration.
-              Totals will be written at the current reference basis of {referenceAmount || "1"} {scaleUnit || "kg"} and clearly kept open for dataset review.
+              Create or update estimated inputs for electricity, industrial heat from natural gas, and steam-derived heat,
+              plus calculated outputs for spent solvent incineration and wastewater treatment.
+              Values are defined for a main output basis of exactly 1 kg and linked to the specified ecoinvent datasets.
             </p>
           </div>
           <button
@@ -66,10 +65,12 @@ export function PasDefaultsDialog({
         </div>
 
         <div className="mt-6 rounded-lg border border-mist/80 bg-lab px-4 py-4 text-sm leading-6 text-slate">
-          Wastewater is calculated from water-like INPUT rows only, converted from kg water to m3 using 1000 kg/m3.
-          Hazardous waste is calculated from non-water mass-based INPUT rows, excluding electricity, heat, and steam.
+          Spent solvent mixture is calculated as all mass inputs minus water minus the main output.
+          Wastewater is the sum of water inputs, converted from kg to m3 using 1000 kg/m3. Water is identified by its linked dataset: tap water, or deionised, ultrapure or completely softened water.
+          Applying a profile updates matching PAS rows instead of creating duplicates. Existing measured values with the same flow names will be replaced, so review the affected rows before continuing.
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }

@@ -71,6 +71,19 @@ export function areUnitsEquivalent(left: string, right: string) {
   return Boolean(normalizedLeft && normalizedRight && normalizedLeft === normalizedRight);
 }
 
+const MASS_UNIT_TO_KG: Record<string, number> = { mg: 1e-6, g: 1e-3, kg: 1, t: 1000, tonne: 1000, tonnes: 1000 };
+const VOLUME_UNIT_TO_M3: Record<string, number> = { ml: 1e-6, l: 1e-3, m3: 1 };
+
+export function convertMassToKg(amount: number, unit: string) {
+  const factor = MASS_UNIT_TO_KG[normalizeUnitForComparison(unit)];
+  return factor === undefined ? null : amount * factor;
+}
+
+export function convertVolumeToM3(amount: number, unit: string) {
+  const factor = VOLUME_UNIT_TO_M3[normalizeUnitForComparison(unit)];
+  return factor === undefined ? null : amount * factor;
+}
+
 export function convergeToEcoinventUnit(userUnit: string, ecoinventUnit: string) {
   const canonicalUnit = ecoinventUnit.trim();
   if (!canonicalUnit) return userUnit;

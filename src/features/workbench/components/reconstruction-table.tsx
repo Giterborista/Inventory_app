@@ -3,10 +3,12 @@
 import { Fragment, useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 
+import { appFeatures } from "@/features/workbench/app-features";
+import { PasDefaultsDialog } from "@/features/workbench/components/pas-defaults-dialog";
 import { RowEditorDialog } from "@/features/workbench/components/row-editor-dialog";
 import { resolutionLabels } from "@/features/workbench/display";
-import { getLinkedMolecule, getRowInventoryReviewIssues, isReferenceProductRow } from "@/features/workbench/selectors";
-import type { PasProfile } from "@/features/workbench/pas-defaults";
+import { PAS_REFERENCE_LABEL, type PasProfile } from "@/features/workbench/pas-defaults";
+import { getEffectiveMainOutputBasis, getLinkedMolecule, getRowInventoryReviewIssues, hasOneKilogramMainOutput, isReferenceProductRow } from "@/features/workbench/selectors";
 import type {
   MoleculeDraft,
   MoleculeRecord,
@@ -504,6 +506,7 @@ export function ReconstructionTable({
   onOpenMolecule,
   onCreateChildFromRow,
   onImportActivityFromFile,
+  onApplyPasDefaults,
   onSaveRow,
   onRescale,
   onRemoveScaling,
@@ -524,6 +527,7 @@ export function ReconstructionTable({
   });
   const [helpOpen, setHelpOpen] = useState(false);
   const [scaleOpen, setScaleOpen] = useState(false);
+  const [pasDefaultsOpen, setPasDefaultsOpen] = useState(false);
 
   const inputRows = useMemo(
     () => molecule.rows.filter((row) => row.section === "INPUT").sort((a, b) => a.order - b.order),
@@ -543,6 +547,9 @@ export function ReconstructionTable({
     referenceAmount !== targetAmount &&
     molecule.rows.some((row) => row.totalScaledValue.trim().length > 0),
   );
+  const effectiveMainOutput = getEffectiveMainOutputBasis(molecule);
+  const pasDefaultsAllowed = hasOneKilogramMainOutput(molecule);
+  const pasRowsPresent = molecule.rows.some((row) => row.reference === PAS_REFERENCE_LABEL);
 
   function openEditor(
     section: ReconstructionSection,
@@ -708,9 +715,39 @@ export function ReconstructionTable({
               {!scaleValid ? <span className="pb-2 text-xs text-alert">Enter positive amounts and a unit.</span> : null}
             </div>
           ) : null}
+
+          {appFeatures.evidenceLedger && activeSection === "INPUT" ? (
+            <div className="mt-3 flex flex-wrap items-center justify-between gap-3 border-t border-mist/40 pt-3">
+              <div>
+                <div className="text-xs font-semibold text-ink">PAS input values</div>
+                <div className={`mt-0.5 text-xs ${pasDefaultsAllowed ? "text-slate" : "text-alert"}`}>
+                  {pasDefaultsAllowed
+                    ? "Available for the current 1 kg main output basis."
+                    : `Available only when the main output is exactly 1 kg${effectiveMainOutput?.amount !== null && effectiveMainOutput?.unit ? `; current basis is ${effectiveMainOutput.amount} ${effectiveMainOutput.unit}` : ""}.`}
+                </div>
+              </div>
+              <button
+                className="rounded-sm border border-[#3f9b82]/70 bg-[#247a65]/10 px-3 py-1.5 text-xs font-semibold text-[#68bca3] transition hover:bg-[#247a65]/20 disabled:cursor-not-allowed disabled:border-mist disabled:bg-transparent disabled:text-slate/55"
+                disabled={!pasDefaultsAllowed}
+                onClick={() => setPasDefaultsOpen(true)}
+                type="button"
+              >
+                {pasRowsPresent ? "Reapply PAS input values" : "Apply PAS input values"}
+              </button>
+            </div>
+          ) : null}
         </div>
 
       </section>
+
+      <PasDefaultsDialog
+        onApply={(profile) => {
+          onApplyPasDefaults(profile);
+          setPasDefaultsOpen(false);
+        }}
+        onClose={() => setPasDefaultsOpen(false)}
+        open={appFeatures.evidenceLedger && pasDefaultsOpen && pasDefaultsAllowed}
+      />
 
       <RowEditorDialog
         currentMolecule={molecule}

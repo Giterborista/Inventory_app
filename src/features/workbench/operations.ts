@@ -13,12 +13,14 @@ import {
   touchProject,
 } from "@/features/workbench/state-utils";
 import {
-  PAS_DEFAULT_ECOINVENT_NAMES,
+  PAS_DEFAULT_ECOINVENT_DATASETS,
   PAS_PROFILE_DEFAULTS,
   PAS_REFERENCE_LABEL,
-  STEAM_ENERGY_PER_KG_MJ,
+  PAS_WATER_DATASET_TERMS,
   type PasProfile,
 } from "@/features/workbench/pas-defaults";
+import { getEffectiveMainOutputBasis, hasOneKilogramMainOutput } from "@/features/workbench/selectors";
+import { convertMassToKg, convertVolumeToM3 } from "@/features/workbench/units";
 import type {
   DocumentationRecord,
   EcoinventCheckRecord,
@@ -205,50 +207,15 @@ function rescaleRows(molecule: MoleculeRecord) {
   });
 }
 
-function findRowIndexByName(rows: ReconstructionRow[], name: string) {
-  const normalizedTarget = normalizeText(name);
-  return rows.findIndex((row) => normalizeText(row.name) === normalizedTarget);
-}
-
-function isWaterLikeRow(row: ReconstructionRow) {
-  return normalizeText(row.name).includes("water");
-}
-
-function isPasUtilityRow(row: ReconstructionRow) {
-  const normalized = normalizeText(row.name);
-  return normalized.includes("electricity") || normalized === "heat" || normalized.includes("steam");
-}
-
-function toMassKg(totalValue: string | number | null | undefined, unit: string | null | undefined) {
-  const numeric = parseNumericValue(totalValue);
-  if (numeric === null) {
-    return null;
-  }
-
-  const normalizedUnit = normalizeText(String(unit ?? ""));
-  if (normalizedUnit === "kg") {
-    return numeric;
-  }
-  if (normalizedUnit === "g") {
-    return numeric / 1000;
-  }
-  if (normalizedUnit === "mg") {
-    return numeric / 1_000_000;
-  }
-  if (normalizedUnit === "t" || normalizedUnit === "ton" || normalizedUnit === "tonne" || normalizedUnit === "tonnes") {
-    return numeric * 1000;
-  }
-  if (normalizedUnit === "lb" || normalizedUnit === "lbs") {
-    return numeric * 0.45359237;
-  }
-
-  return null;
-}
+type PasRowDefinition = Partial<ReconstructionRow> & {
+  name: string;
+  legacyNames?: string[];
+};
 
 function upsertPasRows(
   molecule: MoleculeRecord,
   section: ReconstructionSection,
-  definitions: Array<Partial<ReconstructionRow> & { name: string }>,
+  definitions: PasRowDefinition[],
 ) {
   const sectionRows = molecule.rows.filter((row) => row.section === section);
   const untouchedRows = molecule.rows.filter((row) => row.section !== section);
@@ -256,14 +223,20 @@ function upsertPasRows(
   const timestamp = nowIso();
 
   for (const definition of definitions) {
-    const index = findRowIndexByName(nextSectionRows, definition.name);
+    const { legacyNames = [], ...rowDefinition } = definition;
+    const candidateNames = [rowDefinition.name, ...legacyNames].map(normalizeText);
+    const index = nextSectionRows.findIndex(
+      (row) =>
+        candidateNames.includes(normalizeText(row.name)) ||
+        Boolean(rowDefinition.ecoinventDatasetUuid && row.ecoinventDatasetUuid === rowDefinition.ecoinventDatasetUuid),
+    );
 
     if (index === -1) {
       nextSectionRows.push(
         createBlankRow(section, nextSectionRows.length + 1, {
-          ...definition,
+          ...rowDefinition,
           section,
-          scaledUnit: definition.scaledUnit ?? definition.unit ?? molecule.scaleUnit,
+          scaledUnit: rowDefinition.scaledUnit ?? rowDefinition.unit ?? molecule.scaleUnit,
         }),
       );
       continue;
@@ -272,16 +245,112 @@ function upsertPasRows(
     const current = nextSectionRows[index];
     nextSectionRows[index] = {
       ...current,
-      ...definition,
+      ...rowDefinition,
       section,
-      notes: definition.notes || current.notes,
+      notes: rowDefinition.notes || current.notes,
       updatedAt: timestamp,
-      scaledUnit: definition.scaledUnit ?? definition.unit ?? current.scaledUnit,
+      scaledUnit: rowDefinition.scaledUnit ?? rowDefinition.unit ?? current.scaledUnit,
       evidenceIds: current.evidenceIds,
     };
   }
 
   return [...untouchedRows, ...normalizeSectionRows(nextSectionRows)];
+}
+
+function isPasWaterRow(row: ReconstructionRow) {
+  const datasetName = normalizeText(`${row.ecoinventName} ${row.ecoinventReferenceProduct}`);
+  return PAS_WATER_DATASET_TERMS.some((term) => datasetName.includes(normalizeText(term)));
+}
+
+function getRowMassKg(row: ReconstructionRow) {
+  const amount = parseNumericValue(row.totalValue);
+  return amount === null ? null : convertMassToKg(amount, row.unit);
+}
+
+function getRowWaterM3(row: ReconstructionRow) {
+  const amount = parseNumericValue(row.totalValue);
+  if (amount === null) {
+    return null;
+  }
+  const massKg = convertMassToKg(amount, row.unit);
+  return massKg === null ? convertVolumeToM3(amount, row.unit) : massKg / WATER_KG_PER_M3;
+}
+
+function formatRowNames(rows: ReconstructionRow[]) {
+  return rows.length > 0 ? rows.map((row) => row.name || "Unnamed flow").join("; ") : "none";
+}
+
+function buildPasWasteRows(
+  molecule: MoleculeRecord,
+  mainOutputRow: ReconstructionRow,
+  scaled: boolean,
+): PasRowDefinition[] {
+  const inputRows = molecule.rows.filter((row) => row.section === "INPUT").sort((a, b) => a.order - b.order);
+  const waterRows = inputRows.filter((row) => isPasWaterRow(row) && getRowWaterM3(row) !== null);
+  const massRows = inputRows.filter((row) => !isPasWaterRow(row) && getRowMassKg(row) !== null);
+  const countedRows = inputRows.filter((row) => waterRows.includes(row) || massRows.includes(row));
+  const skippedRows = inputRows.filter((row) => !countedRows.includes(row));
+
+  const wastewaterM3 = waterRows.reduce((sum, row) => sum + (getRowWaterM3(row) ?? 0), 0);
+  const massBalanceKg =
+    massRows.reduce((sum, row) => sum + (getRowMassKg(row) ?? 0), 0) - (getRowMassKg(mainOutputRow) ?? 0);
+  const spentSolventKg = Math.max(massBalanceKg, 0);
+  const waterDatasetTerms = PAS_WATER_DATASET_TERMS.join("; ");
+
+  const spentSolventNotes = [
+    `PAS 2090 mass balance: all inputs (${formatRowNames(countedRows)}) - water (${formatRowNames(waterRows)}) - main output (${mainOutputRow.name || "Main output"}).`,
+    massBalanceKg < 0 ? "The result was negative, so the amount is set to 0 kg." : "",
+    skippedRows.length > 0 ? `Not included, no mass amount: ${formatRowNames(skippedRows)}.` : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
+  const wastewaterNotes =
+    waterRows.length > 0
+      ? `PAS 2090: water inputs (${formatRowNames(waterRows)}) converted from kg to m3 using 1000 kg/m3. Water is identified by its linked dataset: ${waterDatasetTerms}.`
+      : `PAS 2090: no water inputs found, so wastewater is 0 m3. Water is identified by its linked dataset: ${waterDatasetTerms}.`;
+
+  return [
+    {
+      name: "Spent solvent mixture",
+      legacyNames: ["Hazardous waste incineration"],
+      totalValue: formatScaledValue(spentSolventKg),
+      unit: "kg",
+      totalScaledValue: scaled ? getScaledQuantity(molecule, spentSolventKg) : "",
+      scaledUnit: scaled ? "kg" : "",
+      reference: PAS_REFERENCE_LABEL,
+      amountSource: "calculated",
+      ecoinventStatus: "present",
+      rawEcoinventStatus: "Present",
+      ecoinventDatasetId: "",
+      ecoinventDatasetUuid: PAS_DEFAULT_ECOINVENT_DATASETS.spentSolvent.datasetUuid,
+      ecoinventGeography: PAS_DEFAULT_ECOINVENT_DATASETS.spentSolvent.geography,
+      ecoinventName: PAS_DEFAULT_ECOINVENT_DATASETS.spentSolvent.exactName,
+      ecoinventReferenceProduct: PAS_DEFAULT_ECOINVENT_DATASETS.spentSolvent.referenceProduct,
+      ecoinventUnit: PAS_DEFAULT_ECOINVENT_DATASETS.spentSolvent.unit,
+      linkedMoleculeId: null,
+      notes: spentSolventNotes,
+    },
+    {
+      name: "Wastewater, average",
+      legacyNames: ["Wastewater treatment"],
+      totalValue: formatScaledValue(wastewaterM3),
+      unit: "m3",
+      totalScaledValue: scaled ? getScaledQuantity(molecule, wastewaterM3) : "",
+      scaledUnit: scaled ? "m3" : "",
+      reference: PAS_REFERENCE_LABEL,
+      amountSource: "calculated",
+      ecoinventStatus: "present",
+      rawEcoinventStatus: "Present",
+      ecoinventDatasetId: "",
+      ecoinventDatasetUuid: PAS_DEFAULT_ECOINVENT_DATASETS.wastewater.datasetUuid,
+      ecoinventGeography: PAS_DEFAULT_ECOINVENT_DATASETS.wastewater.geography,
+      ecoinventName: PAS_DEFAULT_ECOINVENT_DATASETS.wastewater.exactName,
+      ecoinventReferenceProduct: PAS_DEFAULT_ECOINVENT_DATASETS.wastewater.referenceProduct,
+      ecoinventUnit: PAS_DEFAULT_ECOINVENT_DATASETS.wastewater.unit,
+      linkedMoleculeId: null,
+      notes: wastewaterNotes,
+    },
+  ];
 }
 
 function createLinkedInputRow(
@@ -1758,102 +1827,87 @@ export function applyPasDefaults(
   profile: PasProfile,
 ): WorkbenchState {
   return updateOneMolecule(state, moleculeId, (molecule) => {
-    const referenceAmount = parseNumericValue(molecule.scaleReferenceAmount) ?? 1;
+    const mainOutputBasis = getEffectiveMainOutputBasis(molecule);
+    if (!mainOutputBasis || !hasOneKilogramMainOutput(molecule)) {
+      return molecule;
+    }
+    const scaleReferenceAmount = parseNumericValue(molecule.scaleReferenceAmount);
+    const scaleTargetAmount = parseNumericValue(molecule.scaleTargetAmount);
+    const sourceBasisMultiplier =
+      mainOutputBasis.scaled && scaleReferenceAmount && scaleTargetAmount
+        ? scaleReferenceAmount / scaleTargetAmount
+        : 1;
     const defaults = PAS_PROFILE_DEFAULTS[profile];
-    const utilityRows: Array<Partial<ReconstructionRow> & { name: string }> = [
+    const utilityRows: PasRowDefinition[] = [
       {
         name: "Electricity, medium voltage",
-        totalValue: formatScaledValue(defaults.electricityKwhPerKg * referenceAmount),
+        totalValue: formatScaledValue(defaults.electricityKwhPerKg * sourceBasisMultiplier),
         unit: "kWh",
-        totalScaledValue: getScaledQuantity(molecule, defaults.electricityKwhPerKg * referenceAmount),
-        scaledUnit: "kWh",
+        totalScaledValue: mainOutputBasis.scaled ? formatScaledValue(defaults.electricityKwhPerKg) : "",
+        scaledUnit: mainOutputBasis.scaled ? "kWh" : "",
         reference: PAS_REFERENCE_LABEL,
-        ecoinventStatus: "unchecked",
-        rawEcoinventStatus: "Not checked",
-        ecoinventName: PAS_DEFAULT_ECOINVENT_NAMES.electricity,
+        amountSource: "estimated",
+        ecoinventStatus: "present",
+        rawEcoinventStatus: "Present",
+        ecoinventDatasetId: "",
+        ecoinventDatasetUuid: PAS_DEFAULT_ECOINVENT_DATASETS.electricity.datasetUuid,
+        ecoinventGeography: PAS_DEFAULT_ECOINVENT_DATASETS.electricity.geography,
+        ecoinventName: PAS_DEFAULT_ECOINVENT_DATASETS.electricity.exactName,
+        ecoinventReferenceProduct: PAS_DEFAULT_ECOINVENT_DATASETS.electricity.referenceProduct,
+        ecoinventUnit: PAS_DEFAULT_ECOINVENT_DATASETS.electricity.unit,
+        linkedMoleculeId: null,
       },
       {
-        name: "Heat",
-        totalValue: formatScaledValue(defaults.heatMjPerKg * referenceAmount),
+        name: "Heat, district or industrial, natural gas",
+        legacyNames: ["Heat"],
+        totalValue: formatScaledValue(defaults.heatMjPerKg * sourceBasisMultiplier),
         unit: "MJ",
-        totalScaledValue: getScaledQuantity(molecule, defaults.heatMjPerKg * referenceAmount),
-        scaledUnit: "MJ",
+        totalScaledValue: mainOutputBasis.scaled ? formatScaledValue(defaults.heatMjPerKg) : "",
+        scaledUnit: mainOutputBasis.scaled ? "MJ" : "",
         reference: PAS_REFERENCE_LABEL,
-        ecoinventStatus: "unchecked",
-        rawEcoinventStatus: "Not checked",
-        ecoinventName: PAS_DEFAULT_ECOINVENT_NAMES.heat,
+        amountSource: "estimated",
+        ecoinventStatus: "present",
+        rawEcoinventStatus: "Present",
+        ecoinventDatasetId: "",
+        ecoinventDatasetUuid: PAS_DEFAULT_ECOINVENT_DATASETS.heat.datasetUuid,
+        ecoinventGeography: PAS_DEFAULT_ECOINVENT_DATASETS.heat.geography,
+        ecoinventName: PAS_DEFAULT_ECOINVENT_DATASETS.heat.exactName,
+        ecoinventReferenceProduct: PAS_DEFAULT_ECOINVENT_DATASETS.heat.referenceProduct,
+        ecoinventUnit: PAS_DEFAULT_ECOINVENT_DATASETS.heat.unit,
+        linkedMoleculeId: null,
         notes: "Default PAS proxy heat dataset for industrial chemical production.",
       },
       {
-        name: "Steam",
-        totalValue: formatScaledValue((defaults.steamMjPerKg / STEAM_ENERGY_PER_KG_MJ) * referenceAmount),
-        unit: "kg",
-        totalScaledValue: getScaledQuantity(
-          molecule,
-          (defaults.steamMjPerKg / STEAM_ENERGY_PER_KG_MJ) * referenceAmount,
-        ),
-        scaledUnit: "kg",
+        name: "Heat, from steam, in chemical industry",
+        legacyNames: ["Steam"],
+        totalValue: formatScaledValue(defaults.steamMjPerKg * sourceBasisMultiplier),
+        unit: "MJ",
+        totalScaledValue: mainOutputBasis.scaled ? formatScaledValue(defaults.steamMjPerKg) : "",
+        scaledUnit: mainOutputBasis.scaled ? "MJ" : "",
         reference: PAS_REFERENCE_LABEL,
-        ecoinventStatus: "unchecked",
-        rawEcoinventStatus: "Not checked",
-        ecoinventName: PAS_DEFAULT_ECOINVENT_NAMES.steam,
-        notes: "Converted from MJ to kg steam using 2.75 MJ/kg.",
+        amountSource: "estimated",
+        ecoinventStatus: "present",
+        rawEcoinventStatus: "Present",
+        ecoinventDatasetId: "",
+        ecoinventDatasetUuid: PAS_DEFAULT_ECOINVENT_DATASETS.steam.datasetUuid,
+        ecoinventGeography: PAS_DEFAULT_ECOINVENT_DATASETS.steam.geography,
+        ecoinventName: PAS_DEFAULT_ECOINVENT_DATASETS.steam.exactName,
+        ecoinventReferenceProduct: PAS_DEFAULT_ECOINVENT_DATASETS.steam.referenceProduct,
+        ecoinventUnit: PAS_DEFAULT_ECOINVENT_DATASETS.steam.unit,
+        linkedMoleculeId: null,
+        notes: "PAS steam-derived heat proxy, represented in the ecoinvent dataset's MJ unit.",
       },
     ];
 
     const rowsWithUtilities = upsertPasRows(molecule, "INPUT", utilityRows);
-    const inputRows = rowsWithUtilities.filter((row) => row.section === "INPUT");
-
-    const wastewaterAmountKg = inputRows.reduce((sum, row) => {
-      if (!isWaterLikeRow(row)) {
-        return sum;
-      }
-      return sum + (toMassKg(row.totalValue, row.unit) ?? 0);
-    }, 0);
-    const wastewaterAmountM3 = wastewaterAmountKg / WATER_KG_PER_M3;
-
-    const hazardousAmountKg = inputRows.reduce((sum, row) => {
-      if (isWaterLikeRow(row) || isPasUtilityRow(row)) {
-        return sum;
-      }
-      return sum + (toMassKg(row.totalValue, row.unit) ?? 0);
-    }, 0);
-
-    const outputRows: Array<Partial<ReconstructionRow> & { name: string }> = [
-      {
-        name: "Wastewater treatment",
-        totalValue: formatScaledValue(wastewaterAmountM3),
-        unit: "m3",
-        totalScaledValue: getScaledQuantity(molecule, wastewaterAmountM3),
-        scaledUnit: "m3",
-        reference: "Automatic from water inputs",
-        ecoinventStatus: "unchecked",
-        rawEcoinventStatus: "Not checked",
-        ecoinventName: PAS_DEFAULT_ECOINVENT_NAMES.wastewater,
-        notes: "Calculated from water input mass using 1000 kg/m3.",
-      },
-      {
-        name: "Hazardous waste incineration",
-        totalValue: formatScaledValue(hazardousAmountKg),
-        unit: "kg",
-        totalScaledValue: getScaledQuantity(molecule, hazardousAmountKg),
-        scaledUnit: "kg",
-        reference: "Automatic from non-utility mass inputs",
-        ecoinventStatus: "unchecked",
-        rawEcoinventStatus: "Not checked",
-        ecoinventName: PAS_DEFAULT_ECOINVENT_NAMES.hazardous,
-      },
-    ];
+    const moleculeWithUtilities = { ...molecule, rows: rowsWithUtilities };
 
     return {
       ...molecule,
       rows: upsertPasRows(
-        {
-          ...molecule,
-          rows: rowsWithUtilities,
-        },
+        moleculeWithUtilities,
         "OUTPUT",
-        outputRows,
+        buildPasWasteRows(moleculeWithUtilities, mainOutputBasis.row, mainOutputBasis.scaled),
       ),
     };
   });
