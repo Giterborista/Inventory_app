@@ -32,6 +32,7 @@ import {
   buildProjectJsonExport,
   downloadBrowserFile,
   loadProjectJsonFile,
+  loadProjectJsonFileWithRepairs,
 } from "@/features/workbench/exporters";
 import { getHierarchySearchMatches, getMoleculeById, getProjectSearchResults, getUnresolvedMolecules, validateProject } from "@/features/workbench/selectors";
 import type { ProjectSearchResult, ProjectValidationIssue } from "@/features/workbench/selectors";
@@ -299,7 +300,7 @@ export function WorkbenchApp() {
     },
   ) => {
     try {
-      const importedState = await loadProjectJsonFile(file);
+      const { state: importedState, skippedLinks } = await loadProjectJsonFileWithRepairs(file);
       applyStateChange((current) =>
         importMoleculeSubtree(current, importedState, {
           replaceMoleculeId: options?.replaceMoleculeId,
@@ -308,6 +309,7 @@ export function WorkbenchApp() {
       );
       setCreateDialogOpen(false);
       setPendingParentChildId(null);
+      alertSkippedLinks(skippedLinks);
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "The selected JSON subtree could not be imported.";
@@ -379,13 +381,23 @@ export function WorkbenchApp() {
     }
 
     try {
-      const nextState = ensureLinkedObjectReferenceOutputs(await loadProjectJsonFile(file));
-      replaceSessionState(nextState, "opened");
+      const { state: loadedState, skippedLinks } = await loadProjectJsonFileWithRepairs(file);
+      replaceSessionState(ensureLinkedObjectReferenceOutputs(loadedState), "opened");
       setSearchQuery("");
+      alertSkippedLinks(skippedLinks);
     } catch (error) {
       const message = error instanceof Error ? error.message : "The selected JSON file could not be opened.";
       window.alert(message);
     }
+  };
+
+  const alertSkippedLinks = (skippedLinks: string[]) => {
+    if (skippedLinks.length === 0) {
+      return;
+    }
+    window.alert(
+      `The project was opened, but ${skippedLinks.length} link${skippedLinks.length === 1 ? "" : "s"} to missing activities ${skippedLinks.length === 1 ? "was" : "were"} skipped:\n\n${skippedLinks.map((message) => `- ${message}`).join("\n")}\n\nThe original file was not changed.`,
+    );
   };
 
   const createNewProject = () => {

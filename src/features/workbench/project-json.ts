@@ -635,7 +635,18 @@ export function createProjectDocument(project: ProjectRecord): ProjectDocument {
   };
 }
 
-export function parseProjectDocument(rawText: string): WorkbenchState {
+function describeDanglingLinks(project: ReturnType<typeof migrateProjectRecord>) {
+  const moleculeIds = new Set(project.molecules.map((molecule) => molecule.id));
+  return project.links.flatMap((link) => {
+    const missing = [
+      moleculeIds.has(link.parentMoleculeId) ? "" : `parent ${link.parentMoleculeId}`,
+      moleculeIds.has(link.childMoleculeId) ? "" : `child ${link.childMoleculeId}`,
+    ].filter(Boolean);
+    return missing.length > 0 ? [`Link ${link.id} was skipped: missing ${missing.join(" and ")}.`] : [];
+  });
+}
+
+export function parseProjectDocumentWithRepairs(rawText: string): { state: WorkbenchState; skippedLinks: string[] } {
   const parsed = JSON.parse(rawText) as { schemaVersion?: number; project?: unknown } | unknown;
   const parsedRecord =
     parsed && typeof parsed === "object" && !Array.isArray(parsed) ? (parsed as Record<string, unknown>) : null;
@@ -644,11 +655,19 @@ export function parseProjectDocument(rawText: string): WorkbenchState {
   const rawProject = parsedRecord && "project" in parsedRecord ? parsedRecord.project : parsed;
 
   const migratedProject = migrateProjectRecord(rawProject, schemaVersion);
+  const skippedLinks = describeDanglingLinks(migratedProject);
   const normalizedProject = normalizeProjectRecord(migratedProject);
   validateNormalizedProject(normalizedProject);
 
   return {
-    project: normalizedProject,
-    selectedMoleculeId: null,
+    state: {
+      project: normalizedProject,
+      selectedMoleculeId: null,
+    },
+    skippedLinks,
   };
+}
+
+export function parseProjectDocument(rawText: string): WorkbenchState {
+  return parseProjectDocumentWithRepairs(rawText).state;
 }

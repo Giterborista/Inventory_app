@@ -1,5 +1,5 @@
 import { evidenceStrengthLabels, evidenceTypeLabels, resolutionLabels, reviewLabels } from "@/features/workbench/display";
-import { createProjectDocument, parseProjectDocument } from "@/features/workbench/project-json";
+import { createProjectDocument, parseProjectDocument, parseProjectDocumentWithRepairs } from "@/features/workbench/project-json";
 import {
   getChildMolecules,
   getEffectiveResolutionStatus,
@@ -46,6 +46,11 @@ export function buildProjectJsonExport(project: ProjectRecord) {
 export async function loadProjectJsonFile(file: File) {
   const content = await file.text();
   return parseProjectDocument(content);
+}
+
+export async function loadProjectJsonFileWithRepairs(file: File) {
+  const content = await file.text();
+  return parseProjectDocumentWithRepairs(content);
 }
 
 export async function buildMoleculePdfExport(

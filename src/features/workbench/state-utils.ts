@@ -657,9 +657,12 @@ export function syncProjectGraph(project: ProjectRecord): ProjectRecord {
     ),
   );
 
+  const moleculeIds = new Set(project.molecules.map((molecule) => molecule.id));
   const manualLinks = (project.links ?? []).filter(
     (link) =>
       link.sourceRowId === null &&
+      moleculeIds.has(link.parentMoleculeId) &&
+      moleculeIds.has(link.childMoleculeId) &&
       !rowLinkedPairs.has(normalizedLinkKey(link.parentMoleculeId, link.childMoleculeId, null)),
   );
   const nextLinks: MoleculeLinkRecord[] = [...manualLinks];
