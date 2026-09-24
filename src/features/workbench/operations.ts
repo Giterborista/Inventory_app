@@ -419,6 +419,7 @@ function mergeDocumentationRecords(current: DocumentationRecord, imported: Docum
     balancedEquation: pickPreferredText(imported.balancedEquation, current.balancedEquation),
     calculationNotes: pickPreferredText(imported.calculationNotes, current.calculationNotes),
     explanationLines: normalizeExplanationLines(explanationLines),
+    evidenceLedger: imported.evidenceLedger ?? current.evidenceLedger,
   };
 }
 

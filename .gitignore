@@ -30,8 +30,11 @@ tmp-debug-keys.ts
 .playwright-mcp/
 Proxy_JSON_Troubleshooting/
 Simapro_importer/
-# Local openLCA database, exports, and generated packages.
-OpenLCA/
+# Local openLCA database, exports, and generated packages. Keep the converter
+# source and its tests versioned while excluding every local database asset.
+OpenLCA/*
+!OpenLCA/build_openlca_package.py
+!OpenLCA/test_build_openlca_package.py
 outputs/
 tmp/
 *.py[cod]

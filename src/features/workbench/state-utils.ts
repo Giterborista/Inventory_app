@@ -156,6 +156,7 @@ export function createEmptyDocumentation(): DocumentationRecord {
     balancedEquation: "",
     calculationNotes: "",
     explanationLines: [],
+    evidenceLedger: null,
   };
 }
 
@@ -265,6 +266,7 @@ export function createBlankRow(
     pubchemMatch: row.pubchemMatch ?? null,
     linkedMoleculeId: row.linkedMoleculeId ?? null,
     evidenceIds: Array.isArray(row.evidenceIds) ? row.evidenceIds.filter(Boolean) : [],
+    evidenceLedger: row.evidenceLedger ?? null,
     sourceWorkbook: safeText(row.sourceWorkbook),
     sourceSheet: safeText(row.sourceSheet),
     sourceRowNumber: typeof row.sourceRowNumber === "number" ? row.sourceRowNumber : null,
@@ -434,6 +436,7 @@ function normalizeDocumentationRecord(record?: Partial<DocumentationRecord>): Do
     balancedEquation: safeText(record?.balancedEquation),
     calculationNotes: safeText(record?.calculationNotes),
     explanationLines: normalizeExplanationLines(record?.explanationLines ?? []),
+    evidenceLedger: record?.evidenceLedger ?? null,
   };
 }
 

@@ -60,6 +60,27 @@ export type ExplanationLine = {
   explanation: string;
 };
 
+export type EvidenceLedgerClass = "" | "L" | "D" | "P" | "W" | "A" | "K" | "T" | "E";
+export type EvidenceLedgerScale = "" | "GEN" | "LAB" | "PIL" | "IND" | "IND+";
+export type EvidenceLedgerOutcome = "PRIM" | "PROXY" | "EXCL";
+
+export type EvidenceLedgerRecord = {
+  code: string;
+  cls: EvidenceLedgerClass;
+  scale: EvidenceLedgerScale;
+  gate: boolean | null;
+  year: string;
+  q: boolean;
+  f: boolean;
+  s: boolean;
+  c: boolean;
+  role: string;
+  outcome: EvidenceLedgerOutcome;
+  exclusionReason: string;
+  route: string;
+  reference: string;
+};
+
 export type DocumentationRecord = {
   referenceAndScope: string;
   functionalUnit: string;
@@ -67,6 +88,7 @@ export type DocumentationRecord = {
   balancedEquation: string;
   calculationNotes: string;
   explanationLines: ExplanationLine[];
+  evidenceLedger: EvidenceLedgerRecord | null;
 };
 
 export type EvidenceRecord = {
@@ -126,6 +148,7 @@ export type ReconstructionRow = {
   pubchemMatch?: PubChemMatch | null;
   linkedMoleculeId: string | null;
   evidenceIds: string[];
+  evidenceLedger: EvidenceLedgerRecord | null;
   sourceWorkbook: string;
   sourceSheet: string;
   sourceRowNumber: number | null;

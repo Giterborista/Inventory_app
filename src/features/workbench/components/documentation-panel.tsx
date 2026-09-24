@@ -2,6 +2,8 @@
 
 import { useEffect, useRef, useState } from "react";
 
+import { appFeatures } from "@/features/workbench/app-features";
+import { EvidenceLedgerControl } from "@/features/workbench/components/evidence-ledger-control";
 import type { DocumentationRecord } from "@/features/workbench/types";
 
 type DocumentationPanelProps = {
@@ -93,6 +95,14 @@ export function DocumentationPanel({
               value={documentation.calculationNotes}
             />
           </section>
+
+          {appFeatures.evidenceLedger ? (
+            <EvidenceLedgerControl
+              contextLabel="activity"
+              onChange={(value) => onChange("evidenceLedger", value)}
+              value={documentation.evidenceLedger}
+            />
+          ) : null}
         </div>
       </section>
 

@@ -1,6 +1,7 @@
 import { normalizeProjectRecord } from "@/features/workbench/state-utils";
 import type {
   DocumentationRecord,
+  EvidenceLedgerRecord,
   ExplanationLine,
   EvidenceRecord,
   EcoinventCheckRecord,
@@ -13,7 +14,7 @@ import type {
   WorkbenchState,
 } from "@/features/workbench/types";
 
-export const CURRENT_PROJECT_SCHEMA_VERSION = 3;
+export const CURRENT_PROJECT_SCHEMA_VERSION = 4;
 
 type ProjectDocument = {
   schemaVersion: number;
@@ -84,6 +85,37 @@ function migrateExplanationLine(value: unknown): ExplanationLine {
   };
 }
 
+function migrateEvidenceLedger(value: unknown): EvidenceLedgerRecord | null {
+  if (!value) return null;
+  if (typeof value === "string") {
+    return {
+      code: value.trim(), cls: "", scale: "", gate: null, year: "", q: false, f: false, s: false, c: false,
+      role: "", outcome: "PRIM", exclusionReason: "", route: "", reference: "",
+    };
+  }
+  if (typeof value !== "object" || Array.isArray(value)) return null;
+  const record = value as Record<string, unknown>;
+  const cls = asString(record.cls);
+  const scale = asString(record.scale);
+  const outcome = asString(record.outcome);
+  return {
+    code: asString(record.code),
+    cls: (["L", "D", "P", "W", "A", "K", "T", "E"].includes(cls) ? cls : "") as EvidenceLedgerRecord["cls"],
+    scale: (["GEN", "LAB", "PIL", "IND", "IND+"].includes(scale) ? scale : "") as EvidenceLedgerRecord["scale"],
+    gate: typeof record.gate === "boolean" ? record.gate : null,
+    year: asString(record.year),
+    q: Boolean(record.q),
+    f: Boolean(record.f),
+    s: Boolean(record.s),
+    c: Boolean(record.c),
+    role: asString(record.role),
+    outcome: (["PRIM", "PROXY", "EXCL"].includes(outcome) ? outcome : "PRIM") as EvidenceLedgerRecord["outcome"],
+    exclusionReason: asString(record.exclusionReason),
+    route: asString(record.route),
+    reference: asString(record.reference),
+  };
+}
+
 function migrateDocumentation(value: unknown): DocumentationRecord {
   const record = value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
 
@@ -94,6 +126,7 @@ function migrateDocumentation(value: unknown): DocumentationRecord {
     balancedEquation: asString(record.balancedEquation),
     calculationNotes: mergeLegacyText(record.calculationNotes, record.reviewerNotes, "Legacy reviewer notes"),
     explanationLines: Array.isArray(record.explanationLines) ? record.explanationLines.map(migrateExplanationLine) : [],
+    evidenceLedger: migrateEvidenceLedger(record.evidenceLedger),
   };
 }
 
@@ -167,6 +200,7 @@ function migrateRow(value: unknown): Partial<ReconstructionRow> {
     pubchemMatch: (record.pubchemMatch ?? null) as ReconstructionRow["pubchemMatch"],
     linkedMoleculeId: record.linkedMoleculeId ? asString(record.linkedMoleculeId) : null,
     evidenceIds: Array.isArray(record.evidenceIds) ? record.evidenceIds.map((item) => asString(item)).filter(Boolean) : [],
+    evidenceLedger: migrateEvidenceLedger(record.evidenceLedger),
     sourceWorkbook: asString(record.sourceWorkbook),
     sourceSheet: asString(record.sourceSheet),
     sourceRowNumber: typeof record.sourceRowNumber === "number" ? record.sourceRowNumber : null,
@@ -508,6 +542,7 @@ function stripProjectForExport(project: ProjectRecord): ProjectRecord {
         pubchemMatch: row.pubchemMatch ?? null,
         linkedMoleculeId: row.linkedMoleculeId,
         evidenceIds: [...row.evidenceIds],
+        evidenceLedger: row.evidenceLedger ? { ...row.evidenceLedger } : null,
         sourceWorkbook: row.sourceWorkbook,
         sourceSheet: row.sourceSheet,
         sourceRowNumber: row.sourceRowNumber,
@@ -531,6 +566,7 @@ function stripProjectForExport(project: ProjectRecord): ProjectRecord {
           result: line.result,
           explanation: line.explanation,
         })),
+        evidenceLedger: molecule.documentation.evidenceLedger ? { ...molecule.documentation.evidenceLedger } : null,
       },
       evidence: molecule.evidence.map((evidence) => ({
         id: evidence.id,

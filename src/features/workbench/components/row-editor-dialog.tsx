@@ -4,7 +4,9 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
 import { EcoinventLookupDialog } from "@/features/workbench/components/ecoinvent-lookup-dialog";
+import { appFeatures } from "@/features/workbench/app-features";
 import { CreateMoleculeDialog } from "@/features/workbench/components/create-molecule-dialog";
+import { EvidenceLedgerControl } from "@/features/workbench/components/evidence-ledger-control";
 import { PubChemLookupDialog } from "@/features/workbench/components/pubchem-lookup-dialog";
 import { resolutionLabels } from "@/features/workbench/display";
 import { makeClientId } from "@/features/workbench/state-utils";
@@ -25,6 +27,7 @@ import type {
   ReconstructionSection,
   ObjectKind,
   ResolutionStatus,
+  EvidenceLedgerRecord,
 } from "@/features/workbench/types";
 
 type RowEditorDialogProps = {
@@ -77,6 +80,7 @@ type RowDraft = {
   pubchemMatch: PubChemMatch | null;
   linkedMoleculeId: string | null;
   ecoinventStatus: ResolutionStatus;
+  evidenceLedger: EvidenceLedgerRecord | null;
 };
 
 type ProjectItemResult =
@@ -129,6 +133,7 @@ function buildDraft(
     pubchemMatch: row?.pubchemMatch ?? null,
     linkedMoleculeId: row?.linkedMoleculeId ?? null,
     ecoinventStatus: row?.ecoinventStatus ?? "unchecked",
+    evidenceLedger: row?.evidenceLedger ?? null,
   };
 }
 
@@ -653,6 +658,7 @@ export function RowEditorDialog({
     ecoinventReferenceProduct: isLinkedProjectItem || isReferenceOutputRow ? "" : draft.ecoinventReferenceProduct,
     ecoinventUnit: isLinkedProjectItem || isReferenceOutputRow ? "" : draft.ecoinventUnit,
     rawEcoinventStatus: isReferenceOutputRow ? "OK" : resolutionLabels[isLinkedProjectItem ? "missing" : draft.ecoinventStatus],
+    evidenceLedger: draft.evidenceLedger,
   });
   const importActivityFile = async (file: File) => {
     if (selectedDataSource && selectedDataSource !== "activity") return;
@@ -1473,6 +1479,14 @@ export function RowEditorDialog({
                   value={draft.notes}
                 />
               </label>
+
+              {appFeatures.evidenceLedger ? (
+                <EvidenceLedgerControl
+                  contextLabel={draft.section === "INPUT" ? "input" : "output"}
+                  onChange={(value) => setDraft((current) => ({ ...current, evidenceLedger: value }))}
+                  value={draft.evidenceLedger}
+                />
+              ) : null}
             </div>
           </section>
           ) : null}
