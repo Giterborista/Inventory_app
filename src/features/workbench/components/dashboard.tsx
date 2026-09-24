@@ -3,7 +3,7 @@
 import Image from "next/image";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 
-import { appBrandBadgeColorClass } from "@/features/workbench/app-features";
+import { BrandBadge } from "@/features/workbench/components/brand-badge";
 import { HierarchyTree } from "@/features/workbench/components/hierarchy-tree";
 import { InterconnectionGraph } from "@/features/workbench/components/interconnection-graph";
 import { ProjectChecksDrawer, type ProjectChecksFilter } from "@/features/workbench/components/project-checks-drawer";
@@ -294,7 +294,7 @@ export function Dashboard({
           <div className="border-b border-mist/70 p-4" data-tutorial="sidebar-brand">
             <div className="flex items-center justify-between gap-3">
               <div className="flex min-w-0 items-center gap-3">
-                <span className={`grid h-8 w-8 shrink-0 place-items-center rounded-md ${appBrandBadgeColorClass} text-[11px] font-bold tracking-wide text-white`}>LCI</span>
+                <BrandBadge className="grid h-8 w-8 shrink-0 place-items-center rounded-md text-[11px] font-bold tracking-wide text-white" />
                 <div className="min-w-0">
                   <div className="text-sm font-semibold text-ink">Inventory Builder</div>
                 </div>

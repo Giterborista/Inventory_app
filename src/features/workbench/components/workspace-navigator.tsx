@@ -2,7 +2,6 @@
 
 import { type ReactNode, useEffect, useMemo, useState } from "react";
 
-import { appBrandBadgeColorClass } from "@/features/workbench/app-features";
 import {
   getAncestorIds,
   getChildMolecules,
@@ -11,6 +10,7 @@ import {
   getMoleculeInventoryReviewState,
   getTopLevelMolecules,
 } from "@/features/workbench/selectors";
+import { BrandBadge } from "@/features/workbench/components/brand-badge";
 import { ThemeToggle } from "@/features/workbench/components/theme-toggle";
 import type { MoleculeRecord, ProjectRecord } from "@/features/workbench/types";
 
@@ -166,7 +166,7 @@ export function WorkspaceNavigator({
       <div className="border-b border-mist/70 bg-white p-4">
         <div className="flex items-center justify-between gap-3">
           <div className="flex min-w-0 items-center gap-3">
-            <span className={`grid h-9 w-9 shrink-0 place-items-center rounded-lg ${appBrandBadgeColorClass} text-xs font-bold tracking-wide text-white shadow-sm`}>LCI</span>
+            <BrandBadge className="grid h-9 w-9 shrink-0 place-items-center rounded-lg text-xs font-bold tracking-wide text-white shadow-sm" />
             <div className="text-sm font-semibold text-ink">Inventory Builder</div>
           </div>
           <ThemeToggle />
