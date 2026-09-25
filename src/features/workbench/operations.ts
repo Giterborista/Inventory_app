@@ -575,6 +575,7 @@ function remapImportedProject(project: ProjectRecord): {
   const molecules = project.molecules.map((molecule) => ({
     ...molecule,
     id: moleculeIdMap.get(molecule.id) ?? molecule.id,
+    mainOutputRowId: rowIdMap.get(molecule.mainOutputRowId) ?? molecule.mainOutputRowId,
     importSessionId: importSessionIdMap.get(molecule.importSessionId) ?? molecule.importSessionId,
     topLevel: false,
     rootOrder: 0,
